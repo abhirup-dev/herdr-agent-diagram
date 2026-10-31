@@ -1,0 +1,11 @@
+{
+  // The Herdr mod: V8 inside the app, no DOM, no Node. Module types come from the running app
+  // (types/herdr-app is a symlink to its home, made by `bun run setup`).
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["es2023"],
+    "types": [],
+    "paths": { "herdr": ["../../types/herdr-app/herdr.d.ts"] }
+  },
+  "include": ["./**/*.ts", "../canvas/**/*.ts", "../../types/herdr-app/gpui-kit.d.ts"]
+}

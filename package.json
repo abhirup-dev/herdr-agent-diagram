@@ -3,12 +3,32 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Agent-pinned Mermaid diagrams for the Herdr desktop app: one CLI + a skill + a mod",
+  "description": "Herdr desktop app add-ons for coding agents: pinned Mermaid diagrams and a native Excalidraw canvas",
   "bin": {
     "herdr-diagram": "bin/herdr-diagram.mjs"
   },
   "dependencies": {
     "@resvg/resvg-js": "^2.6.2",
-    "pele": "^1.12.0"
+    "mcp-excalidraw-server": "2.1.2",
+    "pele": "^1.12.0",
+    "perfect-freehand": "1.2.3",
+    "roughjs": "4.6.6"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.4",
+    "@types/bun": "1.4.4",
+    "typescript": "7.0.2"
+  },
+  "scripts": {
+    "setup": "bun scripts/setup.ts",
+    "typecheck": "tsc -p tsconfig.json && tsc -p src/canvas-mod/tsconfig.json",
+    "lint": "biome check .",
+    "fix": "biome check --write .",
+    "test": "bun test",
+    "build:mod": "bun build src/canvas-mod/main.ts --outdir dist/mods/excal-canvas --target browser --format esm --external gpui-kit --external gpui-base --external herdr --external websocket --external gpui-fps && cp src/canvas-mod/mod.json dist/mods/excal-canvas/ && bun scripts/check-bundle.ts dist/mods/excal-canvas/main.js",
+    "check": "bun run typecheck && bun run lint && bun run test"
+  },
+  "patchedDependencies": {
+    "path-data-parser@0.1.0": "patches/path-data-parser@0.1.0.patch"
   }
 }

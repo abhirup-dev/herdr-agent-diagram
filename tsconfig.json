@@ -1,0 +1,6 @@
+{
+  // Bun side: the sidecar, shared canvas logic, scripts and tests.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "lib": ["es2023"], "types": ["bun"] },
+  "include": ["src/canvas", "src/sidecar", "scripts", "test"]
+}
