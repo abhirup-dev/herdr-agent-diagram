@@ -2,11 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { route } from "../bin/herdr-draw.mjs";
-import { status } from "../bin/lib/canvas.mjs";
-import { extract, parseArgs } from "../bin/lib/mermaid.mjs";
+import { route } from "../cli/herdr-draw.mjs";
+import { status } from "../cli/lib/canvas.mjs";
+import { extract, parseArgs } from "../cli/lib/mermaid.mjs";
 
-const CLI = join(import.meta.dir, "../bin/herdr-draw.mjs");
+const CLI = join(import.meta.dir, "../cli/herdr-draw.mjs");
 const run = (args: string[], env: Record<string, string> = {}, stdin = "") => {
   const r = Bun.spawnSync(["node", CLI, ...args], { env: { ...process.env, ...env }, stdin: Buffer.from(stdin) });
   return { code: r.exitCode, out: r.stdout.toString(), err: r.stderr.toString() };

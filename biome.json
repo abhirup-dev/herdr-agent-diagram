@@ -10,7 +10,7 @@
       "src/**",
       "scripts/**",
       "test/**",
-      "bin/**",
+      "cli/**",
       "mods/**",
       "*.json",
       "!**/dist",

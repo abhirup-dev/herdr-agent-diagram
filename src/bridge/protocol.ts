@@ -13,6 +13,12 @@ export interface Pin {
   readonly source: string;
   /** Milliseconds since the epoch, from the backend's clock. */
   readonly updated: number;
+  /** Where the view shows it: its tab, Mermaid type, size, revision (as in the pin state file). */
+  readonly tab?: string | undefined;
+  readonly type?: string | undefined;
+  readonly width?: number | undefined;
+  readonly height?: number | undefined;
+  readonly rev?: number | undefined;
 }
 
 /** Backend -> frontend pin state of one board (an agent's terminal). `pins` replaces the whole list. */

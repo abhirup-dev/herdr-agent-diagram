@@ -109,6 +109,8 @@ export interface BridgeOptions {
   /** No frame for this long: the link is hung, kill it. */
   readonly deadMs?: number;
   readonly backoffMs?: readonly [min: number, max: number];
+  /** Link lifecycle and anomalies, one line each (src/log/log.mjs in the sidecar). */
+  readonly log?: (msg: string) => void;
 }
 
 /** Ops wait for a live link; previews are moment-to-moment and dropped while down. */
@@ -135,6 +137,7 @@ export class Bridge implements Backend {
       pingMs: 5000,
       deadMs: 15000,
       backoffMs: [500, 30000],
+      log: () => {},
       ...options,
     };
   }
@@ -148,10 +151,12 @@ export class Bridge implements Backend {
     if (!set) {
       set = new Set();
       this.#listeners.set(board, set);
-      if (this.#link) this.#write({ kind: "board", board, msg: { type: "subscribe" } });
-      else if (!this.#cancel) this.#connect();
     }
     set.add(listener);
+    // Every new listener needs the board's full state: ask again even when the board is already followed (the
+    // backend answers everyone; a scene replaces, so the others don't mind).
+    if (this.#link) this.#write({ kind: "board", board, msg: { type: "subscribe" } });
+    else if (!this.#cancel) this.#connect();
     return () => {
       if (!set.delete(listener) || set.size) return;
       this.#listeners.delete(board);
@@ -168,6 +173,7 @@ export class Bridge implements Backend {
 
   /** Drops the link and stops reconnecting; a later subscribe starts again. */
   close(): void {
+    if (this.#link) this.#o.log("closing the link (no boards followed)");
     this.#cancel?.();
     this.#cancel = undefined;
     this.#listeners.clear();
@@ -185,6 +191,7 @@ export class Bridge implements Backend {
   }
 
   #connect(): void {
+    this.#o.log(`connecting: ${this.#o.argv.join(" ").slice(0, 300)}`);
     this.#cancel = undefined;
     const link = this.#o.spawn(this.#o.argv);
     this.#link = link;
@@ -212,7 +219,12 @@ export class Bridge implements Backend {
       for await (const line of link.lines) {
         if (this.#link !== link) return;
         const f = parseDownFrame(line);
-        if (!f) continue;
+        if (!f) {
+          // The link's own words (hc errors, a shell message) arrive here: worth seeing when it won't connect.
+          // Pieces of JSON are hc repainting old screen lines on a re-attach: noise, so skipped.
+          if (line.trim() && !line.includes("{")) this.#o.log(`link says: ${line.trim().slice(0, 200)}`);
+          continue;
+        }
         this.#lastFrame = this.#o.clock.now();
         if (!this.#fresh(f)) continue;
         if (f.kind === "board") for (const l of this.#listeners.get(f.board) ?? []) l(f.msg);
@@ -231,7 +243,10 @@ export class Bridge implements Backend {
     }
     if (f.n !== undefined && this.#recvN !== undefined) {
       if (f.n <= this.#recvN) return false;
-      if (f.n > this.#recvN + 1) this.#subscribeAll(); // frames were lost
+      if (f.n > this.#recvN + 1) {
+        this.#o.log(`frames ${this.#recvN + 1}..${f.n - 1} lost: resubscribing for full state`);
+        this.#subscribeAll(); // frames were lost
+      }
     }
     this.#recvN = f.n ?? this.#recvN;
     return true;
@@ -243,6 +258,9 @@ export class Bridge implements Backend {
   }
 
   #up(): void {
+    this.#o.log(
+      `link up after ${Math.round(this.#o.clock.now() - this.#since)} ms; ${this.#queue.length} queued frame(s) sent`,
+    );
     this.#live = true;
     this.#attempt = 0;
     const queued = this.#queue;
@@ -257,6 +275,7 @@ export class Bridge implements Backend {
     if (!this.#listeners.size) return;
     const [min, max] = this.#o.backoffMs;
     const wait = Math.min(max, min * 2 ** this.#attempt++);
+    this.#o.log(`link lost (${detail}); reconnecting in ${wait} ms (attempt ${this.#attempt})`);
     this.#cancel?.();
     this.#cancel = this.#o.clock.after(wait, () => this.#connect());
   }

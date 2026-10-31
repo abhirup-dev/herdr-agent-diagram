@@ -8,8 +8,8 @@ import path from "node:path";
 import { type Alignment, align, type Direction, distribute, duplicate, group, setLocked, ungroup } from "./arrange.ts";
 import { BoardClient, UnreachableError } from "./client.ts";
 import { describeScene, prepareElement, prepareUpdate } from "./prepare.ts";
+import { sceneFile } from "./scene-file.ts";
 import type { BoardElement } from "./store.ts";
-import { expandElementsForExport } from "./upstream/core/expand-elements.js";
 
 export interface CliOptions {
   /** The board's base URL, e.g. http://127.0.0.1:3077/b/t72. */
@@ -211,19 +211,12 @@ async function exportScene({ c, flags }: Ctx): Promise<void> {
   const out = str(flags.out);
   const format = str(flags.format) ?? "json";
   if (format !== "json" || out?.endsWith(".md")) throw new UsageError("only --format json (Obsidian export was cut)");
-  const elements = expandElementsForExport(await c.elements(), { deterministic: true });
-  const scene = {
-    type: "excalidraw",
-    version: 2,
-    source: "herdr-draw",
-    elements,
-    appState: { viewBackgroundColor: "#ffffff", gridSize: null },
-  };
+  const scene = sceneFile(await c.elements());
   const text = JSON.stringify(scene, null, 2);
   if (!out) return void process.stdout.write(`${text}\n`);
   const file = path.resolve(out);
   fs.writeFileSync(file, text, "utf-8");
-  print({ success: true, file, elements: elements.length, format });
+  print({ success: true, file, elements: scene.elements.length, format });
 }
 
 async function importScene({ c, pos, flags, text }: Ctx): Promise<void> {

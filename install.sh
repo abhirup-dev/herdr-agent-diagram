@@ -1,18 +1,39 @@
 #!/bin/sh
-# Local install for the POC: CLI on PATH, mods into the Herdr app home.
-set -e
-here="$(cd "$(dirname "$0")" && pwd)"
-app="${HERDR_APP_HOME:-$HOME/.config/herdr-app}"
-mkdir -p "$HOME/.local/bin" "$app/mods"
-ln -sf "$here/bin/herdr-draw.mjs" "$HOME/.local/bin/herdr-draw"
-for m in diagram-pane diagram-popup; do
-  mkdir -p "$app/mods/$m"
-  cp "$here/mods/$m"/* "$app/mods/$m/"
-done
-(cd "$here" && bun run build:mod >/dev/null) && mkdir -p "$app/mods/excal-canvas" && cp -R "$here/dist/mods/excal-canvas/." "$app/mods/excal-canvas/"
-for d in "$HOME/.claude/skills" "$HOME/.pi/agent/skills"; do
-  mkdir -p "$d" && ln -sfn "$here/skills/herdr-diagram" "$d/herdr-diagram"
-  ln -sfn "$here/skills/herdr-canvas" "$d/herdr-canvas"
-done
-echo "installed: ~/.local/bin/herdr-draw, $app/mods/{diagram-pane,diagram-popup,excal-canvas}, skill in ~/.claude/skills and ~/.pi/agent/skills"
-echo "layout: add the header to a cloned layout, see README"
+# herdr-draw bootstrap: gets the package, then hands over to `herdr-draw install` (which asks what to set up).
+#   curl -fsSL https://raw.githubusercontent.com/abhirup-dev/herdr-agent-diagram/main/install.sh | sh
+#   ... | sh -s -- -y --agents claude,pi --machines vpsme      (no questions, for agents and scripts)
+# From a clone, `./install.sh` installs that checkout instead of cloning.
+# While the repo is private, curl can't fetch this file: clone it (git clone <repo>) and run ./install.sh.
+# Env: HERDR_DRAW_REPO (git URL), HERDR_DRAW_HOME (where the clone lives, default ~/.local/share/herdr-draw).
+set -eu
+repo="${HERDR_DRAW_REPO:-https://github.com/abhirup-dev/herdr-agent-diagram.git}"
+dir="${HERDR_DRAW_HOME:-$HOME/.local/share/herdr-draw}"
+
+say() { printf 'herdr-draw: %s\n' "$*"; }
+
+bun="$(command -v bun || true)"
+[ -n "$bun" ] || { [ -x "$HOME/.bun/bin/bun" ] && bun="$HOME/.bun/bin/bun"; } || true
+if [ -z "$bun" ]; then
+  say "needs bun (https://bun.sh). Installing it with: curl -fsSL https://bun.sh/install | bash"
+  curl -fsSL https://bun.sh/install | bash >/dev/null
+  bun="$HOME/.bun/bin/bun"
+fi
+
+here="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)"
+if [ -n "$here" ] && [ -f "$here/package.json" ] && grep -q '"name": "herdr-draw"' "$here/package.json"; then
+  dir="$here"
+  say "installing this checkout ($dir)"
+elif [ -d "$dir/.git" ]; then
+  say "updating $dir"
+  git -C "$dir" pull --ff-only --quiet
+else
+  say "cloning $repo into $dir"
+  mkdir -p "$(dirname "$dir")"
+  git clone --quiet --depth 1 "$repo" "$dir"
+fi
+
+cd "$dir"
+[ "$dir" = "$here" ] && "$bun" install --frozen-lockfile --silent || "$bun" install --production --frozen-lockfile --silent
+# Questions need the terminal: under `curl | sh` stdin is this script.
+if [ -t 1 ] && [ -r /dev/tty ]; then exec "$bun" cli/herdr-draw.mjs install "$@" </dev/tty; fi
+exec "$bun" cli/herdr-draw.mjs install "$@"

@@ -8,14 +8,22 @@ import { LinearElementEditor } from "@excalidraw/element";
 import type { ServerWebSocket } from "bun";
 import { handle, SIDECAR_SERVICE } from "../board/http.ts";
 import { prepare } from "../board/render.ts";
-import { frame, parseClientFrame, type ServerMessage, SIDECAR_PORT } from "../canvas/protocol.ts";
+import { frame, parseClientFrame, type ServerMessage, SIDECAR_PORT, splitBoard } from "../canvas/protocol.ts";
 import { cutOut, elementPaints } from "../canvas/shape.ts";
 import { type CanvasElement, isCanvasElement } from "../canvas/types.ts";
+import { brief, logger } from "../log/log.mjs";
 import { Registry } from "./boards.ts";
 import { type RawElement, stableSeed, withSeeds } from "./diff.ts";
+import { appHome, servePins } from "./pins.ts";
+import { Relay } from "./relay.ts";
+import { BoardSaver, boardsDir } from "./save.ts";
+import { RemoteWatch, syncedMachines } from "./watch.ts";
 
 const port = Number(process.env.CANVAS_SIDECAR_PORT ?? SIDECAR_PORT);
-const log = (msg: string) => console.error(`[herdr-draw sidecar ${new Date().toISOString().slice(11, 23)}] ${msg}`);
+const log = logger("sidecar");
+// Unexpected failures land in the log too, not only on the detached process's stderr.
+process.on("uncaughtException", (e) => log(`uncaught: ${e.stack ?? String(e)}`));
+process.on("unhandledRejection", (e) => log(`unhandled rejection: ${String(e)}`));
 
 const labelPosition = LinearElementEditor.getBoundTextElementPosition as unknown as (
   arrow: CanvasElement,
@@ -52,13 +60,52 @@ const convert = async (raw: readonly RawElement[]): Promise<CanvasElement[]> =>
     ),
   );
 
-const boards = new Registry(convert, log);
+const relay = new Relay();
+const boards = new Registry(convert, log, relay, new BoardSaver(boardsDir(), log));
 type Socket = ServerWebSocket<unknown>;
+
+/** Pin feeds per socket and local board: a relay from the main machine mirrors them (src/sidecar/pins.ts). */
+const pinFeeds = new Map<Socket, Map<string, () => void>>();
+function followPins(ws: Socket, board: string, on: boolean): void {
+  const feeds = pinFeeds.get(ws) ?? new Map<string, () => void>();
+  pinFeeds.set(ws, feeds);
+  feeds.get(board)?.();
+  feeds.delete(board);
+  if (on && splitBoard(board).machine === null)
+    feeds.set(
+      board,
+      servePins(appHome(), board, (m) => ws.send(frame(board, m))),
+    );
+}
+function closeSocket(ws: Socket): void {
+  for (const stop of pinFeeds.get(ws)?.values() ?? []) stop();
+  pinFeeds.delete(ws);
+  boards.unsubscribe(ws);
+}
+
+const socketIds = new WeakMap<Socket, number>();
+let nextSocket = 1;
+/** A short id per websocket, so one mod's frames can be followed in the log. */
+function socketId(ws: Socket): number {
+  const known = socketIds.get(ws);
+  if (known !== undefined) return known;
+  const id = nextSocket++;
+  socketIds.set(ws, id);
+  return id;
+}
 
 function onMessage(ws: Socket, data: string): void {
   const f = parseClientFrame(data);
-  if (!f) return;
+  if (!f) {
+    log.debug(`ws dropped a frame it can't parse: ${brief(data, 200)}`);
+    return;
+  }
   const { board, msg: m } = f;
+  if (m.type !== "preview")
+    log.debug(
+      `ws ${socketId(ws)} ${board} <- ${m.type}${m.type === "ops" ? ` (${m.ops.length} ops: ${brief(m.ops.map((o) => o.op))})` : ""}`,
+    );
+  if (m.type === "subscribe" || m.type === "unsubscribe") followPins(ws, board, m.type === "subscribe");
   if (m.type !== "preview") {
     boards.onClient(ws, board, m).catch((err: unknown) => log(`${board} ${m.type} failed: ${String(err)}`));
     return;
@@ -74,13 +121,24 @@ function onMessage(ws: Socket, data: string): void {
 Bun.serve({
   port,
   hostname: "127.0.0.1",
-  fetch(req, server) {
-    if (new URL(req.url).pathname === "/" && server.upgrade(req)) return;
-    return handle(boards, req);
+  async fetch(req, server) {
+    const url = new URL(req.url);
+    if (url.pathname === "/" && server.upgrade(req)) return;
+    const t = performance.now();
+    const res = await handle(boards, req);
+    if (url.pathname !== "/health" && url.pathname !== "/")
+      log.debug(`rest ${req.method} ${url.pathname} -> ${res.status} (${(performance.now() - t).toFixed(0)} ms)`);
+    return res;
   },
   websocket: {
+    open: (ws) => log.debug(`ws ${socketId(ws)} open`),
     message: (ws, data) => onMessage(ws, String(data)),
-    close: (ws) => boards.unsubscribe(ws),
+    close: (ws, code) => {
+      log.debug(`ws ${socketId(ws)} closed (${code})`);
+      closeSocket(ws);
+    },
   },
 });
 log(`${SIDECAR_SERVICE} on http://127.0.0.1:${port} (boards at /b/<board>/api, mods at ws://127.0.0.1:${port}/)`);
+const machines = syncedMachines();
+if (machines.length) new RemoteWatch(machines, relay, port, log).start();

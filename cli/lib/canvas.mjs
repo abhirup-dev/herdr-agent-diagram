@@ -6,7 +6,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { logDir, logger } from "../../src/log/log.mjs";
 
+const log = logger("cli");
 const REPO = path.resolve(path.dirname(fs.realpathSync(fileURLToPath(import.meta.url))), "../..");
 const SIDECAR_SERVICE = "herdr-draw-sidecar";
 
@@ -90,18 +92,22 @@ export async function boardCli(argv, env) {
 // Starts the sidecar if it is down. Something else holding the port is an error, not "up".
 export async function ensureBackend(env) {
   if (await sidecarUp(env)) return;
+  log(`sidecar on :${port(env)} is down: starting it`);
   const { sidecar } = urls(env);
   if (await reachable(sidecar))
     die(`port ${port(env)} is taken by something other than ${SIDECAR_SERVICE} (an older canvas sidecar?)`);
-  const log = path.join(os.tmpdir(), `herdr-draw-sidecar-${port(env)}.log`);
-  const fd = fs.openSync(log, "a");
+  // The sidecar logs to its own file (src/log); this one only catches what it prints before that works.
+  const out = path.join(logDir(env), `sidecar-${port(env)}.out`);
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  const fd = fs.openSync(out, "a");
   spawn(bunBin(env), [path.join(REPO, "src/sidecar/main.ts")], {
     cwd: REPO,
     env: { ...env, CANVAS_SIDECAR_PORT: String(port(env)) },
     detached: true,
     stdio: ["ignore", fd, fd],
   }).unref();
-  await waitFor(`${sidecar}/health`, `herdr-draw sidecar (log: ${log})`);
+  await waitFor(`${sidecar}/health`, `herdr-draw sidecar (log: ${path.join(logDir(env), "sidecar.log")})`);
+  log("sidecar is up");
 }
 
 export async function status(env) {
@@ -117,7 +123,48 @@ export async function status(env) {
   };
 }
 
+/** True where the Herdr app runs. Elsewhere (a machine the app reaches over hc) the app opens views for us. */
+export const appHere = (env) => spawnSync("sh", ["-c", "command -v herdr-app"], { stdio: "ignore", env }).status === 0;
+
+/**
+ * Asks the Herdr app on the person's main machine to act for this terminal: an hc label on it, which that machine's
+ * sidecar follows (`hc events`). The value changes on every call so each one is an event.
+ */
+export function signal(env, what) {
+  const terminal = env.HC_TERMINAL_ID;
+  if (!terminal) return false;
+  const r = spawnSync("hc", ["label", terminal, `herdr-draw.${what}=${Date.now()}`], { encoding: "utf8", env });
+  log(`signal ${what} on ${terminal}: ${r.status === 0 ? "sent" : `failed (${r.status}) ${String(r.stderr).trim()}`}`);
+  return r.status === 0;
+}
+
+/** On another machine: start this machine's sidecar and ask the app to open the canvas beside this terminal. */
+async function openRemote(env) {
+  await ensureBackend(env);
+  if (!signal(env, "canvas")) die("could not reach the Herdr app (no $HC_TERMINAL_ID, or hc failed)");
+  console.log(`asked the Herdr app to open the canvas beside ${env.HC_TERMINAL_ID}: ${urls(env).board}`);
+}
+
+/** The remote end of a bridge (src/bridge/endpoint.ts), run by the main machine over hc; starts the sidecar first. */
+export async function bridgeEndpoint(env) {
+  await ensureBackend(env);
+  const bun = bunBin(env);
+  log("bridge endpoint starting");
+  const r = spawnSync(bun, [path.join(REPO, "src/bridge/endpoint.ts")], {
+    stdio: "inherit",
+    env: {
+      ...env,
+      CANVAS_SIDECAR_PORT: String(port(env)),
+      // The endpoint restarts the sidecar with this if it dies while boards are followed.
+      HERDR_DRAW_ENSURE: JSON.stringify([bun, path.join(REPO, "cli/herdr-draw.mjs"), "canvas", "start"]),
+    },
+  });
+  log(`bridge endpoint exited (${r.status})`);
+  process.exitCode = r.status ?? 1;
+}
+
 export async function open(env) {
+  if (!appHere(env)) return openRemote(env);
   await ensureBackend(env);
   // Split this agent's pane, not whichever pane has focus. shortcut: splits every time (mod panes are not
   // listed by `herdr-app ls`, so an open canvas can't be detected); run it once per session.
@@ -139,6 +186,7 @@ export async function open(env) {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, "canvas.json"), JSON.stringify({ opened: new Date().toISOString() }));
   }
+  log(`open: pane.split ${JSON.stringify(args)}`);
   execFileSync("herdr-app", ["do", "pane.split", JSON.stringify(args)], { stdio: "inherit", env });
   console.log(`canvas open${pane ? ` beside ${terminal}` : " beside the focused pane"}: ${urls(env).board}`);
 }

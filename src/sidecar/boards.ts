@@ -5,8 +5,23 @@ import type { BoardInfo, Boards } from "../board/http.ts";
 import { Board } from "../board/store.ts";
 import { type ClientMessage, frame, type ServerMessage, splitBoard } from "../canvas/protocol.ts";
 import type { CanvasElement } from "../canvas/types.ts";
+import { logger } from "../log/log.mjs";
 import { diff, type RawElement } from "./diff.ts";
 import { Writer } from "./writer.ts";
+
+const debug = logger("sidecar").debug;
+
+/** Writes a board to disk after it changes (src/sidecar/save.ts). */
+export interface Saver {
+  schedule(board: string, elements: () => readonly object[]): void;
+}
+
+/** Boards on other machines (src/sidecar/relay.ts). */
+export interface Remote {
+  subscribe(v: Viewer, id: string): void;
+  unsubscribe(v: Viewer, id?: string): void;
+  send(id: string, msg: Exclude<ClientMessage, { type: "preview" | "subscribe" | "unsubscribe" }>): void;
+}
 
 /** A mod socket (or a relay's); it receives board frames as JSON text. */
 export interface Viewer {
@@ -19,7 +34,10 @@ export type Convert = (raw: readonly RawElement[]) => Promise<CanvasElement[]>;
 type Log = (msg: string) => void;
 
 class Live {
-  readonly store = new Board(() => void this.reconvert());
+  readonly store = new Board(() => {
+    void this.reconvert();
+    this.saver?.schedule(this.id, () => [...this.store.elements.values()]);
+  });
   readonly viewers = new Set<Viewer>();
   readonly writer: Writer;
   prepared = new Map<string, CanvasElement>();
@@ -31,6 +49,7 @@ class Live {
     readonly id: string,
     private readonly convert: Convert,
     private readonly log: Log,
+    private readonly saver?: Saver,
   ) {
     const s = this.store;
     this.writer = new Writer(
@@ -97,12 +116,14 @@ export class Registry implements Boards {
   constructor(
     private readonly convert: Convert,
     private readonly log: Log = () => {},
+    private readonly relay?: Remote,
+    private readonly saver?: Saver,
   ) {}
 
   get(id: string): Live {
     let b = this.live.get(id);
     if (!b) {
-      b = new Live(id, this.convert, this.log);
+      b = new Live(id, this.convert, this.log, this.saver);
       this.live.set(id, b);
       this.log(`board ${id} created`);
     }
@@ -125,8 +146,14 @@ export class Registry implements Boards {
   /** Sends a socket the board's full state, then its changes. A socket may follow several boards (a relay does). */
   subscribe(v: Viewer, id: string): void {
     const { machine } = splitBoard(id);
+    debug(
+      `board ${id}: subscribe${machine !== null ? (this.relay ? " (remote, via relay)" : " (remote, no relay)") : ""}`,
+    );
     if (machine !== null) {
-      // shortcut: boards on other machines need the relay (src/bridge, not wired yet); the mod shows "server down".
+      if (this.relay) {
+        this.relay.subscribe(v, id);
+        return;
+      }
       const m: ServerMessage = { type: "status", upstream: "disconnected", detail: `no relay to ${machine}` };
       v.send(frame(id, m));
       return;
@@ -139,6 +166,8 @@ export class Registry implements Boards {
 
   /** Stops one board's frames to the socket, or all of them (the socket closed). */
   unsubscribe(v: Viewer, id?: string): void {
+    debug(`board ${id ?? "*"}: unsubscribe`);
+    if (id === undefined || splitBoard(id).machine !== null) this.relay?.unsubscribe(v, id);
     for (const b of this.subscribed.get(v) ?? []) {
       if (id !== undefined && b.id !== id) continue;
       b.viewers.delete(v);
@@ -151,7 +180,7 @@ export class Registry implements Boards {
   onClient(v: Viewer, board: string, m: Exclude<ClientMessage, { type: "preview" }>): Promise<void> {
     if (m.type === "subscribe") return Promise.resolve(this.subscribe(v, board));
     if (m.type === "unsubscribe") return Promise.resolve(this.unsubscribe(v, board));
-    if (splitBoard(board).machine !== null) return Promise.resolve();
+    if (splitBoard(board).machine !== null) return Promise.resolve(this.relay?.send(board, m));
     const { writer } = this.get(board);
     if (m.type === "ops") return writer.apply(m.ops);
     return m.type === "undo" ? writer.undo() : writer.redo();

@@ -15,6 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { Resvg } from "@resvg/resvg-js";
 import { render } from "pele";
+import { appHere, signal } from "./canvas.mjs";
 
 const APP_HOME = process.env.HERDR_APP_HOME || path.join(os.homedir(), ".config", "herdr-app");
 const ROOT = path.join(APP_HOME, "data", "herdr-agent-diagram");
@@ -118,6 +119,8 @@ function save(dir, state) {
   const tmp = path.join(dir, ".state.json.tmp");
   fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
   fs.renameSync(tmp, path.join(dir, "state.json"));
+  // On a machine without the Herdr app, tell the main machine's sidecar to fetch the pins (it mirrors them there).
+  if (!appHere(process.env)) signal(process.env, "pins");
 }
 function findPin(state, id) {
   for (const tab of state.tabs) {

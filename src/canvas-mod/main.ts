@@ -23,6 +23,10 @@ import {
   SIDECAR_PORT,
 } from "../canvas/protocol.ts";
 import { applyMessage, emptyScene, type Scene, sceneBounds } from "../canvas/scene.ts";
+import { modLogger } from "./log.ts";
+
+const log = modLogger("excal-canvas");
+
 import type { CanvasElement, Paint, TextElement } from "../canvas/types.ts";
 import { type BuiltElement, buildElement, type Hex, hex } from "./paths.ts";
 import { footer, panel, toolbar } from "./ui.ts";
@@ -92,6 +96,7 @@ export default class ExcalCanvas extends View {
     const p = { ...(paneProps() ?? {}), ...((props ?? {}) as object) } as { board?: unknown; port?: unknown };
     if (typeof p.board === "string" && p.board) this.board = p.board;
     if (typeof p.port === "number") this.port = p.port;
+    log.use(cx);
     this.focus = cx.focus_handle();
     const hexInput = InputState.new({ placeholder: "1e1e1e" });
     hexInput.on("submit", (_e, cx) => {
@@ -105,6 +110,8 @@ export default class ExcalCanvas extends View {
     cx.spawn(async (cx) => {
       for (let delay = 250; ; delay = Math.min(4000, delay * 2)) {
         if (await this.follow(cx)) delay = 250; // it connected before dropping: retry fast
+        if (this.link !== "sidecar down")
+          log(`${this.board}: sidecar connection lost; retrying every ${delay} ms or less`);
         this.link = "sidecar down";
         this.ws = null;
         cx.notify();
@@ -123,6 +130,7 @@ export default class ExcalCanvas extends View {
       connected = true;
       this.ws = ws;
       this.send({ type: "subscribe" });
+      log(`${this.board}: connected to the sidecar on :${this.port}, subscribed`);
       this.link = "connected";
       cx.notify();
       for (;;) {
@@ -143,8 +151,11 @@ export default class ExcalCanvas extends View {
     const f = parseServerFrame(raw);
     if (!f || f.board !== this.board) return false;
     const m = f.msg;
-    if (m.type === "status") this.link = m.upstream === "connected" ? "connected" : "server down";
-    else if (m.type === "history") this.history = { canUndo: m.canUndo, canRedo: m.canRedo };
+    if (m.type === "status") {
+      const link = m.upstream === "connected" ? "connected" : "server down";
+      if (link !== this.link) log(`${this.board}: board ${m.upstream}${m.detail ? ` (${m.detail})` : ""}`);
+      this.link = link;
+    } else if (m.type === "history") this.history = { canUndo: m.canUndo, canRedo: m.canRedo };
     else if (m.type === "preview") this.onPreview(m, cx);
     else this.onScene(m);
     return true;

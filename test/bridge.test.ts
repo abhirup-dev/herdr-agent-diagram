@@ -237,6 +237,20 @@ describe("bridge mux", () => {
 });
 
 describe("bridge relay", () => {
+  test("a second listener on an already followed board gets its full state", async () => {
+    const clock = new FakeClock();
+    const sidecar = new FakeSidecar();
+    const { spawn } = memorySpawner(sidecar, clock);
+    const bridge = new Bridge({ machine: "vpsme", argv: ["x"], spawn, clock });
+    bridge.subscribe("t1", () => {});
+    await tick();
+    const second: BoardServerMessage[] = [];
+    bridge.subscribe("t1", (m) => second.push(m));
+    await tick();
+    expect(second.some((m) => m.type === "scene")).toBe(true);
+    bridge.close();
+  });
+
   test("a dropped link reconnects with backoff, resubscribes and delivers queued ops", async () => {
     const clock = new FakeClock();
     const sidecar = new FakeSidecar();

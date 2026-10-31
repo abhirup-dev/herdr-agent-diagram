@@ -5,10 +5,10 @@
   "type": "module",
   "description": "Herdr desktop app add-ons for coding agents: pinned Mermaid diagrams and a native Excalidraw canvas",
   "bin": {
-    "herdr-draw": "bin/herdr-draw.mjs"
+    "herdr-draw": "cli/herdr-draw.mjs"
   },
   "files": [
-    "bin",
+    "cli",
     "src",
     "mods",
     "skills",
@@ -37,10 +37,10 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p src/canvas-mod/tsconfig.json",
     "lint": "biome check . && bun run lint:deps && bun run lint:unused",
     "fix": "biome check --write .",
-    "test": "bun test",
-    "build:mod": "bun build src/canvas-mod/main.ts --outdir dist/mods/excal-canvas --target browser --format esm --external gpui-kit --external gpui-base --external herdr --external websocket && cp src/canvas-mod/mod.json dist/mods/excal-canvas/ && cp -R src/canvas-mod/icons dist/mods/excal-canvas/ && mkdir -p dist/mods/excal-canvas/fonts && cp src/board/assets/fonts/{Excalifont,Virgil,CascadiaCode}-Regular.ttf src/board/assets/fonts/LICENSES.md dist/mods/excal-canvas/fonts/ && bun scripts/check-bundle.ts dist/mods/excal-canvas/main.js",
+    "test": "HERDR_DRAW_LOGS=${TMPDIR:-/tmp}/herdr-draw-test-logs bun test",
+    "build:mod": "bun build src/canvas-mod/main.ts --outdir dist/mods/excal-canvas --target bun --format esm --external gpui-kit --external gpui-base --external herdr --external websocket --external fs/promises && cp src/canvas-mod/mod.json dist/mods/excal-canvas/ && cp -R src/canvas-mod/icons dist/mods/excal-canvas/ && mkdir -p dist/mods/excal-canvas/fonts && cp src/board/assets/fonts/{Excalifont,Virgil,CascadiaCode}-Regular.ttf src/board/assets/fonts/LICENSES.md dist/mods/excal-canvas/fonts/ && bun scripts/check-bundle.ts dist/mods/excal-canvas/main.js",
     "check": "bun run typecheck && bun run lint && bun run test",
-    "lint:deps": "depcruise src bin scripts mods",
+    "lint:deps": "depcruise src cli scripts mods",
     "lint:unused": "knip"
   }
 }

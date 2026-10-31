@@ -10,6 +10,7 @@
 // Keys: ←/→ pages, ↑/↓ or a tab's number for tabs, + - 0 zoom and fit, f maximises; while maximised the
 // arrows pan. Esc leaves maximised, then closes.
 
+import * as fs from "fs/promises";
 import { h_flex, v_flex } from "gpui-base";
 import { div, image, View } from "gpui-kit";
 import {
@@ -17,6 +18,7 @@ import {
   closeOverlay,
   focused,
   fonts,
+  home,
   panes,
   props,
   readTextFile,
@@ -54,8 +56,61 @@ function hash(s) {
   return (h >>> 0).toString(36);
 }
 
+// Debug log for herdr-draw (`herdr-draw logs mod`): the mod runtime has no file append, so the last lines are kept
+// here and the file rewritten (one writer at a time). Never throws.
+const LOG_MAX = 300;
+function modLogger(name) {
+  // Mods may only write under the app home (herdr.d.ts), so mod logs live there; `herdr-draw logs` reads both.
+  const dir = `${appHome()}/data/herdr-draw/logs`;
+  const file = `${dir}/mod-${name}.log`;
+  let lines = [];
+  let writing = false;
+  let again = false;
+  let loaded = false;
+  // Async work in a mod runs through a view's cx.spawn: lines wait until a view lends its cx (log.use).
+  let cx = null;
+  const write = async () => {
+    if (writing) {
+      again = true;
+      return;
+    }
+    writing = true;
+    try {
+      if (!loaded) {
+        loaded = true;
+        await fs.mkdir(dir, { recursive: true }).catch(() => {});
+        const old = await fs.readFile(file, "utf8").catch(() => "");
+        lines = old.split("\n").filter(Boolean).slice(-LOG_MAX).concat(lines);
+      }
+      if (lines.length > LOG_MAX) lines = lines.slice(-LOG_MAX);
+      if (lines.length) await fs.writeFile(file, `${lines.join("\n")}\n`);
+    } catch {
+      // logging must never break the mod
+    }
+    writing = false;
+    if (again) {
+      again = false;
+      flush();
+    }
+  };
+  const flush = () => {
+    if (cx) cx.spawn(write);
+  };
+  const log = (msg) => {
+    lines.push(`${new Date().toISOString()} app mod-${name} info  ${msg}`);
+    flush();
+  };
+  log.use = (viewCx) => {
+    cx = viewCx;
+    flush();
+  };
+  return log;
+}
+const log = modLogger("diagram-popup");
+
 export default class DiagramPopup extends View {
   init(_props, cx) {
+    log.use(cx);
     this.state = null;
     this.ready = {}; // pin id -> themed svg path (relative to app home)
     this.tab = 0;
@@ -67,6 +122,7 @@ export default class DiagramPopup extends View {
     this.drag = null;
     this.h = cx.focus_handle();
     this.terminal = props()?.terminal || focused()?.terminal || panes().find((p) => p.focused)?.terminal;
+    log(`opened for ${this.terminal ?? "no terminal"}`);
     if (!this.terminal) return;
     const root = `${appHome()}/${DATA}`;
     this.dir = `${root}/${this.terminal}`;

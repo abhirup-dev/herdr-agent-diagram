@@ -16,12 +16,31 @@ agent ──herdr-draw mermaid add──▶ ~/.config/herdr-app/data/herdr-agent
 
 State is keyed by `$HC_TERMINAL_ID` only: one diagram set per terminal.
 
-## Try it (POC, local install)
+## Install
+
+On the machine that runs the Herdr app:
 
 ```sh
-bun install
-./install.sh                   # ~/.local/bin/herdr-draw, mods into ~/.config/herdr-app/mods,
-                               # skill into ~/.claude/skills and ~/.pi/agent/skills
+# while the repo is private: clone it, then run the bootstrap from the clone
+git clone git@github.com:abhirup-dev/herdr-agent-diagram.git && cd herdr-agent-diagram && ./install.sh
+# once public:  curl -fsSL https://raw.githubusercontent.com/abhirup-dev/herdr-agent-diagram/main/install.sh | sh
+```
+
+`install.sh` gets bun if needed, installs dependencies and runs `herdr-draw install`, which asks:
+
+- which agents get the skills (Claude Code, pi, Codex; the ones found are the default);
+- which of your other machines (`hc machine ls`) to sync, and for which agents there.
+
+Nothing is installed on another machine unless you pick it. A synced machine gets the CLI and the skills
+(copied from this machine over hc; if its bun is missing or older than 1.4, a private one in
+`~/.local/share/herdr-draw-bun`). Agents there draw as usual: their canvas opens beside them in this app,
+and their pinned diagrams show in the same badge and popup, over a link opened on first use.
+
+```sh
+herdr-draw install -y --agents claude,pi --machines vpsme   # no questions (agents, scripts)
+herdr-draw install --machines vpsme                          # add or update one machine later
+herdr-draw doctor                                            # check this machine and synced ones
+herdr-draw uninstall                                         # remove (asks about synced machines)
 ```
 
 The badge needs a layout whose pane header is `diagram-pane`. Shipped layouts
@@ -69,13 +88,27 @@ herdr-draw open                                          the view for this termi
 herdr-draw help
 ```
 
+## Debugging
+
+Every part writes a log, with debug lines on by default for now (`HERDR_DRAW_DEBUG=0` turns them off):
+
+| Where | What |
+|-------|------|
+| `~/.local/state/herdr-draw/logs/` (`$HERDR_DRAW_LOGS`) | `cli`, `sidecar`, `endpoint` (the bridge's far end), `install`; `sidecar-<port>.out` is its raw stdout |
+| `~/.config/herdr-app/data/herdr-draw/logs/` | `mod-excal-canvas`, `mod-diagram-pane`, `mod-diagram-popup` (mods can only write under the app home) |
+| `~/.local/state/herdr-draw/boards/` | each board saved as `<board>.excalidraw`; restore with `herdr-draw canvas import <file> --replace` |
+
+`herdr-draw logs [component] [-n N]` merges them by time; `--machine vpsme` reads a synced machine's logs over hc.
+For a remote board, read both sides: the laptop's `sidecar` (`relay:` and `bridge vpsme:` lines) and the machine's
+`endpoint` (`<-` frames in, `->` frames out) and `sidecar`.
+
 ## Layout of this repo
 
-- `bin/herdr-draw.mjs`: the CLI router; `bin/lib/mermaid.mjs` (Node, `pele`, `@resvg/resvg-js` for PNG previews)
-  and `bin/lib/canvas.mjs` (starts the canvas server from `node_modules/.bin` and the sidecar, splits the pane).
+- `cli/herdr-draw.mjs`: the CLI router; `cli/lib/mermaid.mjs` (Node, `pele`, `@resvg/resvg-js` for PNG previews)
+  and `cli/lib/canvas.mjs` (starts the canvas server from `node_modules/.bin` and the sidecar, splits the pane).
 - `mods/diagram-pane/`: clone of Herdr's shipped `pane` header plus the badge.
 - `mods/diagram-popup/`: the viewer.
-- `skills/herdr-diagram/SKILL.md`, `skills/herdr-canvas/SKILL.md`: the agent skills (Claude Code and Pi read the same file).
+- `skills/herdr-diagram/SKILL.md`, `skills/herdr-canvas-mod/SKILL.md`: the agent skills (Claude Code and Pi read the same file).
 - `scratch/anim-spike.mjs`: the animated-GIF experiment (negative result, see below).
 
 ## Known limits (POC)
