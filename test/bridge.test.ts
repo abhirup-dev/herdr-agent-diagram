@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Bridge, type Link, linkArgv, Mux } from "../src/bridge/bridge.ts";
+import { Bridge, hcLinkArgv, type Link, linkArgv, Mux, spawnLink, spawnPty } from "../src/bridge/bridge.ts";
 import type { Clock } from "../src/bridge/clock.ts";
 import { Coalescer } from "../src/bridge/coalesce.ts";
 import { type BoardSocket, runEndpoint } from "../src/bridge/endpoint.ts";
@@ -337,4 +337,110 @@ describe("bridge heartbeat and backpressure", () => {
     expect(merged).toMatchObject({ kind: "board", board: "t1", msg: { type: "patch", rev: 49 } });
     up.end();
   });
+});
+
+describe("bridge over an hc terminal", () => {
+  test("hcLinkArgv starts the endpoint in raw mode once, then attaches", () => {
+    const [sh, c, line] = hcLinkArgv("vpsme", "hd-bridge-x", "bun /tmp/e.js 'ws://h/{board}'");
+    expect([sh, c]).toEqual(["sh", "-c"]);
+    expect(line).toContain("'hc' 'run' '--on' 'vpsme' '--bg' '--rm' '--no-parent' '--name' 'hd-bridge-x'");
+    expect(line).toContain("stty raw -echo; exec bun /tmp/e.js");
+    expect(line).toEndWith("exec hc attach 'vpsme/hd-bridge-x'");
+  });
+
+  test("frames with a terminal escape prefix still parse", () => {
+    expect(parseDownFrame('\u001b[?25h\u001b[I{"kind":"pong","t":3}\r')).toEqual({ kind: "pong", t: 3 });
+  });
+
+  test("frames repainted before the fresh pong are ignored", async () => {
+    const clock = new FakeClock();
+    clock.t = 100;
+    const down = new Channel();
+    const bridge = new Bridge({ machine: "m", argv: [], spawn: () => ({ write() {}, lines: down, kill() {} }), clock });
+    const got: BoardServerMessage[] = [];
+    bridge.subscribe("t1", (m) => got.push(m));
+    const stale = { type: "patch", rev: 9, upsert: [], remove: ["old"] };
+    down.push(encode({ kind: "board", board: "t1", msg: stale }) + encode({ kind: "pong", t: 50 }));
+    await tick();
+    expect(bridge.connected).toBe(false);
+    down.push(encode({ kind: "pong", t: 100 }) + encode({ kind: "board", board: "t1", msg: { ...stale, rev: 10 } }));
+    await tick();
+    expect(bridge.connected).toBe(true);
+    expect(got).toEqual([{ ...stale, rev: 10 }] as BoardServerMessage[]);
+    bridge.close();
+  });
+});
+
+describe("bridge frame gaps", () => {
+  test("a gap in backend frames makes the relay resubscribe every board", async () => {
+    const clock = new FakeClock();
+    const down = new Channel();
+    const writes: UpFrame[] = [];
+    const spawn = (): Link => ({ write: (t) => writes.push(JSON.parse(t)), lines: down, kill() {} });
+    const bridge = new Bridge({ machine: "m", argv: [], spawn, clock });
+    bridge.subscribe("t1", () => {});
+    const msg = { type: "history", canUndo: false, canRedo: false };
+    down.push(encode({ kind: "pong", t: 0, n: 0 }) + encode({ kind: "board", board: "t1", msg, n: 1 }));
+    await tick();
+    const subscribes = () => writes.filter((w) => w.kind === "board" && w.msg.type === "subscribe").length;
+    expect(subscribes()).toBe(1);
+    down.push(encode({ kind: "board", board: "t1", msg, n: 3 }));
+    await tick();
+    expect(subscribes()).toBe(2);
+    expect(writes.map((w) => w.n)).toEqual(writes.map((_, i) => i));
+    bridge.close();
+  });
+
+  test("a gap in relay frames makes the endpoint reopen its boards (full state)", async () => {
+    const sidecar = new FakeSidecar();
+    let opened = 0;
+    const connect: typeof sidecar.connect = (board, onMessage) => {
+      opened++;
+      return sidecar.connect(board, onMessage);
+    };
+    const up = new Channel();
+    void runEndpoint({ lines: up, write() {}, connect, clock: new FakeClock() });
+    up.push(
+      encode({ kind: "board", board: "t1", msg: { type: "subscribe" }, n: 0 }) + encode({ kind: "ping", t: 0, n: 1 }),
+    );
+    await tick();
+    expect(opened).toBe(1);
+    up.push(encode({ kind: "ping", t: 0, n: 3 }));
+    await tick();
+    expect(opened).toBe(2);
+    up.push(encode({ kind: "ping", t: 0, n: 0 })); // a new relay link starts over: not a gap
+    await tick();
+    expect(opened).toBe(2);
+    up.end();
+  });
+});
+
+test("bridge drops frames repainted after a resume", async () => {
+  const clock = new FakeClock();
+  const down = new Channel();
+  const bridge = new Bridge({ machine: "m", argv: [], spawn: () => ({ write() {}, lines: down, kill() {} }), clock });
+  const got: number[] = [];
+  bridge.subscribe("t1", (m) => m.type === "patch" && got.push(m.rev));
+  const patch = (rev: number, n: number) =>
+    encode({ kind: "board", board: "t1", msg: { type: "patch", rev, upsert: [], remove: [] }, n });
+  down.push(encode({ kind: "pong", t: 0, n: 0 }) + patch(1, 1) + patch(2, 2) + patch(1, 1) + patch(2, 2) + patch(3, 3));
+  await tick();
+  expect(got).toEqual([1, 2, 3]);
+  bridge.close();
+});
+
+describe("bridge spawners", () => {
+  for (const [name, spawn, argv] of [
+    ["spawnLink (pipes)", spawnLink, ["cat"]],
+    ["spawnPty (raw tty)", spawnPty, ["sh", "-c", "stty raw -echo; exec cat"]],
+  ] as const) {
+    test(`${name} carries NDJSON both ways`, async () => {
+      const link = spawn(argv);
+      await Bun.sleep(100); // let the shell set the tty raw before writing
+      link.write(encode({ kind: "pong", t: 1, s: "é🙂" }));
+      const first = await link.lines[Symbol.asyncIterator]().next();
+      expect(JSON.parse(first.value as string)).toEqual({ kind: "pong", t: 1, s: "é🙂" });
+      link.kill();
+    });
+  }
 });

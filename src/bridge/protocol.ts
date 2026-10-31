@@ -26,15 +26,27 @@ export type BoardServerMessage = ServerMessage | PinMessage;
 /** `subscribe` asks for a board's full state (status, scene, history, pins), then its changes. */
 export type BoardClientMessage = ClientMessage | { readonly type: "subscribe" } | { readonly type: "unsubscribe" };
 
+/**
+ * `n` counts each side's frames from 0 per link. An hc link can drop frames while hc re-dials its machine (the
+ * stream itself survives), so a gap in `n` means a board may have missed a patch: the receiver asks for full state.
+ */
+interface Seq {
+  readonly n?: number;
+}
+
 /** Backend -> relay. `t` echoes the ping's. */
-export type DownFrame =
-  | { readonly kind: "board"; readonly board: string; readonly msg: BoardServerMessage }
-  | { readonly kind: "pong"; readonly t: number };
+export type DownFrame = Seq &
+  (
+    | { readonly kind: "board"; readonly board: string; readonly msg: BoardServerMessage }
+    | { readonly kind: "pong"; readonly t: number }
+  );
 
 /** Relay -> backend. A ping every few seconds both ways keeps a hung link from living forever. */
-export type UpFrame =
-  | { readonly kind: "board"; readonly board: string; readonly msg: BoardClientMessage }
-  | { readonly kind: "ping"; readonly t: number };
+export type UpFrame = Seq &
+  (
+    | { readonly kind: "board"; readonly board: string; readonly msg: BoardClientMessage }
+    | { readonly kind: "ping"; readonly t: number }
+  );
 
 /** `vpsme/t1f` -> { machine: "vpsme", board: "t1f" }; a local board has no machine. */
 export function splitBoardId(id: string): { readonly machine?: string; readonly board: string } {
@@ -61,7 +73,15 @@ const CLIENT_TYPES: ReadonlySet<unknown> = new Set(["preview", "ops", "undo", "r
 // same shapes the local sidecar already trusts.
 function parseFrame(raw: string, beat: string, types: ReadonlySet<unknown>): unknown {
   try {
-    const f = JSON.parse(raw) as { kind?: unknown; board?: unknown; msg?: { type?: unknown }; t?: unknown };
+    // From the first "{": over a terminal link, escape sequences can precede a line.
+    const f = JSON.parse(raw.slice(Math.max(0, raw.indexOf("{")))) as {
+      kind?: unknown;
+      board?: unknown;
+      msg?: { type?: unknown };
+      t?: unknown;
+      n?: unknown;
+    };
+    if (f.n !== undefined && typeof f.n !== "number") return null;
     if (f.kind === beat) return typeof f.t === "number" ? f : null;
     if (f.kind !== "board" || typeof f.board !== "string" || !BOARD_ID.test(f.board)) return null;
     return types.has(f.msg?.type) ? f : null;
