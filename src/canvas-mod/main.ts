@@ -9,20 +9,19 @@
 import { InputState, type InputState as InputStateT, Textarea, TextareaState } from "gpui-base";
 import { hide_fps_monitor, show_fps_monitor } from "gpui-fps";
 import { type Context, div, type Element, type FocusHandle, View } from "gpui-kit";
-import { fonts, settings } from "herdr";
+import { fonts, layout, settings, theme } from "herdr";
 import { WebSocket, type WebSocketSocket } from "websocket";
 import { type Camera, fit, pan, zoomAt } from "../canvas/camera.ts";
+import { darkColor, isDark } from "../canvas/color.ts";
 import { elementBounds, HANDLES, handlePoint, isShapeTool, pointHandles, simplePaints } from "../canvas/edit.ts";
 import { Editor, type Mods } from "../canvas/editor.ts";
 import { type ClientMessage, parseServerMessage, type ServerMessage, SIDECAR_PORT } from "../canvas/protocol.ts";
 import { applyMessage, emptyScene, type Scene, sceneBounds } from "../canvas/scene.ts";
 import type { Paint } from "../canvas/shape.ts";
 import type { CanvasElement, TextElement } from "../canvas/types.ts";
-import { type BuiltElement, buildElement, hex } from "./paths.ts";
+import { type BuiltElement, buildElement, type Hex, hex } from "./paths.ts";
 import { footer, panel, toolbar } from "./ui.ts";
 
-const BACKGROUND = "#ffffff";
-const ACCENT = "#6965db";
 const SIDECAR_URL = `ws://127.0.0.1:${SIDECAR_PORT}`;
 const HIT_PX = 6;
 const PREVIEW_TIMEOUT_MS = 400;
@@ -49,6 +48,21 @@ type Pointer = { readonly position: { x: number; y: number }; readonly local_pos
 type KeyMods = { shift: boolean; alt: boolean; platform: boolean; control: boolean };
 
 const modsOf = (m: KeyMods): Mods => ({ shift: m.shift, alt: m.alt, cmd: m.platform || m.control });
+
+/** The layout's (else settings') terminal_opacity, 0..1. */
+function terminalOpacity(): number {
+  const v = (layout() as { terminal_opacity?: unknown } | null)?.terminal_opacity ?? settings().terminal_opacity;
+  return typeof v === "number" ? Math.max(0, Math.min(1, v)) : 1;
+}
+
+const withAlpha = (color: string, a: number): Hex =>
+  `${color.slice(0, 7)}${
+    a >= 1
+      ? ""
+      : Math.round(a * 255)
+          .toString(16)
+          .padStart(2, "0")
+  }` as Hex;
 
 export default class ExcalCanvas extends View {
   private scene: Scene = emptyScene;
@@ -259,6 +273,16 @@ export default class ExcalCanvas extends View {
     return b;
   }
 
+  /** Herdr's theme colours, read each frame so the canvas follows theme switches. */
+  private ui: Record<string, string> = {};
+  /** On a dark theme, element colours go through Excalidraw's dark-mode filter. */
+  private dark = false;
+  /** The canvas fill: the terminals' background at their opacity, so the layout's backdrop shows through alike. */
+  private backdrop: Hex = "#ffffff";
+  private ink(c: string): Hex {
+    return hex(this.dark ? darkColor(c) : c);
+  }
+
   /** Appends the element's painted paths to `out` (no spread: spread calls are slow in the mod runtime). */
   private drawShape(e: CanvasElement, out: Element[]): void {
     const b = this.paths(e);
@@ -266,7 +290,7 @@ export default class ExcalCanvas extends View {
     const top = (e.y + b.my) * this.camera.zoom + this.camera.offsetY;
     const fade = this.ed.erasing.has(e.id);
     for (const p of b.paints) {
-      const el = window.paint_path(p.path, p.color).absolute().left(left).top(top).size_full();
+      const el = window.paint_path(p.path, this.ink(p.color)).absolute().left(left).top(top).size_full();
       out.push(fade ? el.opacity(0.3) : el);
     }
   }
@@ -284,7 +308,7 @@ export default class ExcalCanvas extends View {
       .font_family(fontFor(e.fontFamily))
       .text_size(e.fontSize * zoom)
       .line_height(e.lineHeight) // a bare number is a multiplier, as in Excalidraw
-      .text_color(hex(e.strokeColor))
+      .text_color(this.ink(e.strokeColor))
       .opacity((this.ed.erasing.has(e.id) ? 0.3 : 1) * (e.opacity / 100))
       .whitespace_nowrap()
       .children(
@@ -318,20 +342,26 @@ export default class ExcalCanvas extends View {
       .top(y * zoom + offsetY + dy - size / 2)
       .size(size)
       .border_1()
-      .border_color(ACCENT);
+      .border_color(this.ui.accent as Hex);
   }
 
   /** Selection outlines, handles and the marquee, in screen px. */
   private drawSelection(els: readonly CanvasElement[], out: Element[]): void {
     const marquee = this.ed.marquee();
-    if (marquee) out.push(this.screenBox(marquee, 0).bg("#6965db14").border_1().border_color(ACCENT));
+    if (marquee)
+      out.push(
+        this.screenBox(marquee, 0)
+          .bg(`${this.ui.accent}14` as Hex)
+          .border_1()
+          .border_color(this.ui.accent as Hex),
+      );
     if (!this.ed.selected.size || this.ed.editing) return;
     const lin = this.ed.singleLinear(els);
     if (lin) {
       // Excalidraw's line editing: a handle per point, a lighter one mid-segment (drag it to bend).
       for (const h of pointHandles(lin)) {
         const dot = this.handle(h.at[0], h.at[1], h.kind === "point" ? 10 : 8).rounded_full();
-        out.push(h.kind === "point" ? dot.bg("#ffffff") : dot.bg("#6965db55"));
+        out.push(h.kind === "point" ? dot.bg(this.ui.background as Hex) : dot.bg(`${this.ui.accent}55` as Hex));
       }
       return;
     }
@@ -343,16 +373,29 @@ export default class ExcalCanvas extends View {
     const selected = els.filter((e) => this.ed.selected.has(e.id));
     if (selected.length > 1)
       for (const e of selected)
-        out.push(this.screenBox(elementBounds(e), 4).border_1().border_dashed().border_color(ACCENT));
+        out.push(
+          this.screenBox(elementBounds(e), 4)
+            .border_1()
+            .border_dashed()
+            .border_color(this.ui.accent as Hex),
+        );
     const all = this.ed.selectionBounds(els);
     if (!all) return;
-    out.push(this.screenBox(all, 6).border_1().border_color(ACCENT));
+    out.push(
+      this.screenBox(all, 6)
+        .border_1()
+        .border_color(this.ui.accent as Hex),
+    );
     if (this.ed.busy) return;
     for (const h of HANDLES) {
       const [hx, hy] = handlePoint(all, h);
       const dx = h.includes("w") ? -6 : h.includes("e") ? 6 : 0;
       const dy = h.startsWith("n") ? -6 : h.startsWith("s") ? 6 : 0;
-      out.push(this.handle(hx, hy, 8, dx, dy).rounded_sm().bg("#ffffff"));
+      out.push(
+        this.handle(hx, hy, 8, dx, dy)
+          .rounded_sm()
+          .bg(this.ui.background as Hex),
+      );
     }
   }
 
@@ -363,7 +406,7 @@ export default class ExcalCanvas extends View {
     const area = Textarea.new(this.text.state)
       .text_size(t.fontSize * zoom)
       .font_family(fontFor(5))
-      .text_color(hex(t.color));
+      .text_color(this.ink(t.color));
     return div()
       .absolute()
       .left(t.x * zoom + offsetX)
@@ -439,7 +482,7 @@ export default class ExcalCanvas extends View {
       .items_center()
       .gap(6)
       .text_size(11)
-      .text_color("#868e96")
+      .text_color(this.ui.muted as Hex)
       .child(div().w(7).h(7).rounded(4).bg(dot))
       .child(`${this.link} · ${n} element${n === 1 ? "" : "s"} ${this.failure ? ` · ${this.failure}` : ""}`);
   }
@@ -456,6 +499,9 @@ export default class ExcalCanvas extends View {
 
   private view(cx: Context): Element {
     this.pendingCx = cx;
+    this.ui = theme();
+    this.dark = isDark(this.ui.background ?? "#ffffff");
+    this.backdrop = withAlpha(this.ui.background ?? "#ffffff", terminalOpacity());
     const z = appZoom();
     const els = this.ed.elements();
     const hidden = this.ed.editing?.id;
@@ -474,7 +520,7 @@ export default class ExcalCanvas extends View {
       .relative()
       .size_full()
       .overflow_hidden()
-      .bg(BACKGROUND)
+      .bg(this.backdrop)
       .on_size_change((size, cx) => {
         this.viewport = { width: size.width / z, height: size.height / z };
         if (this.autoFit) this.fitToScene();

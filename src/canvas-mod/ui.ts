@@ -3,13 +3,13 @@
 // Every island swallows its own mouse-downs so a click on the chrome never starts a canvas gesture.
 import { Input, type InputState } from "gpui-base";
 import { div, type Element, svg } from "gpui-kit";
+import { theme } from "herdr";
 import { FONT_SIZES, PALETTE, QUICK_BACKGROUNDS, QUICK_STROKES, type Style, type Tool } from "../canvas/edit.ts";
 import type { CanvasElement, FillStyle, StrokeStyle } from "../canvas/types.ts";
-import { hex } from "./paths.ts";
+import { type Hex, hex } from "./paths.ts";
 
-const ACCENT = "#6965db";
-const ACTIVE_BG = "#e0dfff";
-const MUTED = "#5c5f66";
+/** A Herdr theme colour, so the chrome follows light and dark themes. */
+const c = (name: string): Hex => hex(theme()[name] ?? "#808080");
 const ICONS = "mods/excal-canvas/icons";
 
 type Cb = () => void;
@@ -17,15 +17,19 @@ type Cb = () => void;
 /** A floating white panel that keeps clicks to itself. */
 const island = (): Element =>
   div()
-    .bg("#ffffff")
+    .bg(c("popover"))
+    .text_color(c("foreground"))
     .rounded_lg()
     .shadow_md()
     .border_1()
-    .border_color("#e9ecef")
+    .border_color(c("border"))
     .on_mouse_down("left", (_e, cx) => cx.stop_propagation());
 
-const icon = (name: string, size = 18, color = "#1e1e1e"): Element =>
-  svg(`${ICONS}/${name}.svg`).size(size).flex_none().text_color(hex(color));
+const icon = (name: string, size = 18, color?: string): Element =>
+  svg(`${ICONS}/${name}.svg`)
+    .size(size)
+    .flex_none()
+    .text_color(color ? hex(color) : c("foreground"));
 
 function button(
   content: Element,
@@ -42,7 +46,7 @@ function button(
     .rounded_md()
     .child(content);
   if (opts.disabled) return b.opacity(0.35);
-  return (active ? b.bg(ACTIVE_BG) : b.hover((s) => s.bg("#f1f0ff")))
+  return (active ? b.bg(c("selected")) : b.hover((s) => s.bg(c("hover"))))
     .cursor_pointer()
     .on_mouse_down("left", (_e, cx) => {
       cx.stop_propagation();
@@ -70,9 +74,9 @@ export function toolbar(tool: Tool, onTool: (t: Tool) => void): Element {
     const active = t === tool;
     const cell = div()
       .relative()
-      .child(button(icon(t, 18, active ? "#030064" : "#1e1e1e"), active, () => onTool(t), { w: 36 }))
-      .child(div().absolute().right(3).bottom(1).text_size(9).text_color(MUTED).child(key));
-    return i === 1 ? [div().w(1).h(20).mx(4).bg("#e9ecef"), cell] : [cell];
+      .child(button(icon(t, 18, active ? c("accent") : undefined), active, () => onTool(t), { w: 36 }))
+      .child(div().absolute().right(3).bottom(1).text_size(9).text_color(c("muted")).child(key));
+    return i === 1 ? [div().w(1).h(20).mx(4).bg(c("border")), cell] : [cell];
   });
   return (
     div()
@@ -104,7 +108,12 @@ export interface PanelProps {
 }
 
 const section = (title: string, body: Element): Element =>
-  div().flex().flex_col().gap(4).child(div().text_size(11).text_color(MUTED).child(title)).child(body);
+  div()
+    .flex()
+    .flex_col()
+    .gap(4)
+    .child(div().text_size(11).text_color(c("muted")).child(title))
+    .child(body);
 
 const row = (...children: Element[]): Element => div().flex().items_center().gap(4).flex_wrap().children(children);
 
@@ -113,14 +122,14 @@ function swatch(color: string, active: boolean, onPress: Cb, size = 22): Element
     .size(size)
     .rounded_sm()
     .border_1()
-    .border_color(active ? ACCENT : "#ced4da")
+    .border_color(active ? c("accent") : c("border"))
     .cursor_pointer()
     .on_mouse_down("left", (_e, cx) => {
       cx.stop_propagation();
       onPress();
     });
   return color === "transparent"
-    ? s.bg("#ffffff").flex().items_center().justify_center().text_size(12).text_color("#fa5252").child("⌀")
+    ? s.bg(c("background")).flex().items_center().justify_center().text_size(12).text_color("#fa5252").child("⌀")
     : s.bg(hex(color));
 }
 
@@ -134,7 +143,7 @@ function colorSection(
   const set = (c: string) => p.onStyle(which === "stroke" ? { strokeColor: c } : { backgroundColor: c });
   const quickRow = row(
     ...quick.map((c) => swatch(c, c === value, () => set(c))),
-    div().w(1).h(20).bg("#e9ecef"),
+    div().w(1).h(20).bg(c("border")),
     swatch(value, p.shades === which, () => p.onShades(p.shades === which ? null : which)),
   );
   if (p.shades !== which) return section(title, quickRow);
@@ -155,7 +164,7 @@ function colorSection(
     .flex()
     .items_center()
     .gap(4)
-    .child(div().text_size(11).text_color(MUTED).child("#"))
+    .child(div().text_size(11).text_color(c("muted")).child("#"))
     .child(div().flex_1().text_size(12).child(Input.new(p.hexInput)));
   return section(title, div().flex().flex_col().gap(6).child(quickRow).child(grid).child(field));
 }
@@ -172,8 +181,8 @@ function choice<T>(options: readonly (readonly [T, Element | string])[], value: 
 
 const strokeLine = (h: number, dash = false): Element =>
   dash
-    ? div().w(18).h(0).border_t_2().border_dashed().border_color("#1e1e1e")
-    : div().w(18).h(h).rounded_sm().bg("#1e1e1e");
+    ? div().w(18).h(0).border_t_2().border_dashed().border_color(c("foreground"))
+    : div().w(18).h(h).rounded_sm().bg(c("foreground"));
 
 const has = (p: PanelProps, ...t: CanvasElement["type"][]) => t.some((x) => p.types.has(x));
 
