@@ -23,6 +23,20 @@ module.exports = {
       to: { path: "^src/canvas-mod/" },
     },
     {
+      name: "bridge-stands-alone",
+      comment: "src/bridge (relay and remote endpoint) builds on the shared core only; the sidecar uses it at integration.",
+      severity: "error",
+      from: { path: "^src/bridge/" },
+      to: { path: "^src/(canvas-mod|sidecar)/" },
+    },
+    {
+      name: "no-bridge-in-mod-or-core",
+      comment: "The bridge spawns processes (Bun): the mod runtime can't run it and the pure core must not depend on it.",
+      severity: "error",
+      from: { path: "^src/(canvas-mod|canvas)/" },
+      to: { path: "^src/bridge/" },
+    },
+    {
       name: "mod-runtime-no-npm",
       comment: "The mod bundle runs in Herdr's mod runtime: npm code there is slow or breaks (no DOM, no timers). Types are fine.",
       severity: "error",
