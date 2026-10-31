@@ -1,4 +1,7 @@
-# herdr-draw
+# Herdr Canvas Mod
+
+A live Excalidraw canvas and pinned Mermaid diagrams for coding agents in the Herdr desktop app,
+driven by the `herdr-draw` CLI.
 
 Coding agents (Claude Code, Pi, anything with a shell) pin Mermaid diagrams
 for the terminal they run in. The Herdr desktop app shows a badge in that
@@ -21,9 +24,9 @@ State is keyed by `$HC_TERMINAL_ID` only: one diagram set per terminal.
 On the machine that runs the Herdr app:
 
 ```sh
-# while the repo is private: clone it, then run the bootstrap from the clone
-git clone git@github.com:abhirup-dev/herdr-agent-diagram.git && cd herdr-agent-diagram && ./install.sh
-# once public:  curl -fsSL https://raw.githubusercontent.com/abhirup-dev/herdr-agent-diagram/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/abhirup-dev/herdr-canvas-mod/main/install.sh | sh
+# or from a clone:
+git clone https://github.com/abhirup-dev/herdr-canvas-mod.git && cd herdr-canvas-mod && ./install.sh
 ```
 
 `install.sh` gets bun if needed, installs dependencies and runs `herdr-draw install`, which asks:

@@ -1,12 +1,12 @@
 #!/bin/sh
 # herdr-draw bootstrap: gets the package, then hands over to `herdr-draw install` (which asks what to set up).
-#   curl -fsSL https://raw.githubusercontent.com/abhirup-dev/herdr-agent-diagram/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/abhirup-dev/herdr-canvas-mod/main/install.sh | sh
 #   ... | sh -s -- -y --agents claude,pi --machines vpsme      (no questions, for agents and scripts)
 # From a clone, `./install.sh` installs that checkout instead of cloning.
 # While the repo is private, curl can't fetch this file: clone it (git clone <repo>) and run ./install.sh.
 # Env: HERDR_DRAW_REPO (git URL), HERDR_DRAW_HOME (where the clone lives, default ~/.local/share/herdr-draw).
 set -eu
-repo="${HERDR_DRAW_REPO:-https://github.com/abhirup-dev/herdr-agent-diagram.git}"
+repo="${HERDR_DRAW_REPO:-https://github.com/abhirup-dev/herdr-canvas-mod.git}"
 dir="${HERDR_DRAW_HOME:-$HOME/.local/share/herdr-draw}"
 
 say() { printf 'herdr-draw: %s\n' "$*"; }
