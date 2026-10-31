@@ -65,13 +65,16 @@ What has to change at integration (owned by the sidecar and protocol work):
    - Tag mod websocket messages with `board` (the `kind: "board"` frame works as is), so local
      and remote share one path.
    - Then `src/bridge/protocol.ts` imports from it instead of defining its own.
-2. Sidecar as backend: serve a board websocket that `endpoint.ts` can reach. The default is
-   `ws://127.0.0.1:$CANVAS_SIDECAR_PORT/b/{board}/ws`, and the template is the endpoint's first
-   argument. Sending status, scene and history on open is what it does today.
+2. Sidecar as backend: the endpoint's `Connect` is the seam. `wsConnect` assumes one websocket
+   per board (`ws://127.0.0.1:$CANVAS_SIDECAR_PORT/b/{board}/ws`, the endpoint's first argument).
+   If the multi-board sidecar has a single mod websocket carrying `{board, msg}`, swap in a
+   `Connect` that shares one socket and forwards `kind: "board"` frames almost unchanged.
 3. Sidecar as relay:
    - Wrap its in-process boards as a `Backend`.
    - Build `new Mux(local, m => new Bridge({ machine: m, argv: linkArgv(entry, line) }))`, with
      `entry` from `hc machine ls --json`.
+   - Refuse a machine name not in that list. The prefix comes from the mod and must never reach
+     ssh unchecked.
    - Route mod subscriptions and ops through it.
 4. Remote install (hd-jf3.7.4):
    - Bundle the endpoint with `bun build src/bridge/endpoint.ts --target bun`.
