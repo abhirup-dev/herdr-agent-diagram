@@ -64,39 +64,59 @@ Decided 2026-10-31. One package and CLI, `herdr-draw`, for both kinds of visual:
    protocol should use them from the start so local and remote share one code path.
 
    **Bridge spike (hd-jf3.7.1, 2026-10-31, laptop to vpsme, `scripts/bridge-spike.ts`).**
-   `hc exec --on <m> -i` is not a stream. It reads stdin to EOF, runs the program, and returns its
-   output at exit (base64 in `machine.exec`). Its timeout is 60 s by default and at most 600 s. So
-   the bridge is the machine's own link run as a stdio pipe: `ssh -T -o BatchMode=yes <target>
-   <remote endpoint>` (for `--via` machines, the via command with the line as its last argument).
+   Chosen: an hc terminal stream. `hc run --on <m> --name <n>` starts the remote endpoint with its tty
+   raw (`stty raw -echo`), and the relay runs `hc attach <m>/<n>` under a pseudo-terminal (Bun's
+   built-in `Bun.Terminal`, so no python or `script`). It is Herdr-native: no extra configuration,
+   hc's own machine link, and it works for ssh and `--via` machines alike.
+   `hc exec --on <m> -i` is not a stream: it reads stdin to EOF, runs the program, and returns its
+   output at exit, with a 600 s cap. It stays for one-shot calls such as starting the remote backend.
 
-   | Pipe | 1 KB round trip p50 / p95 | Notes |
-   |---|---|---|
-   | `hc exec -i`, one call per message | 57-64 / 123-278 ms | batch only; usable for one-shot RPC (install, status) |
-   | ssh stdio pipe (chosen) | 26 / 95 ms | 64 KB: 56-104 / 190-420 ms; 1 MB scene: 0.7-1.6 s |
-   | ssh -L + websocket | 28 / 95 ms | same latency; ssh machines only; needs a listening port there |
+   | Pipe | 1 KB round trip p50 / p95 | 64 KB | 1 MB | 1 KB throughput | Connect |
+   |---|---|---|---|---|---|
+   | `hc exec -i`, one call per message | 57-66 / 123-278 ms | | | | per call |
+   | hc terminal stream (chosen) | 28-31 / 103-150 ms | 151-185 / 225-465 ms | 1.2-2.2 s | 480-1130 msg/s, 0.5-1.2 MB/s | cold 0.8 s, reattach 0.04-0.8 s |
+   | ssh stdio pipe (fallback) | 25-26 / 92-95 ms | 56-104 / 165-420 ms | 0.7-1.9 s | 540-1190 msg/s, 0.6-1.4 MB/s | 0.6-1.5 s |
+   | ssh -L + websocket | 26-28 / 95-99 ms | | | | 0.6-1.7 s |
 
-   - Throughput over the ssh pipe: 540-1190 msg/s for 1 KB patches, 0.6-1.4 MB/s; the link is the limit.
-   - Connect plus first echo: 0.6-1.5 s; reconnect after a drop: 0.6-0.95 s.
-   - A 70 s stream at one echo per second ran fine (p50 26 ms), with no cap.
-   - End to end through `src/bridge` (Bridge, then ssh, then endpoint, then a fake sidecar websocket
-     on vpsme):
-     - subscribe to scene: 0.67 s; ops to patch: p50 29 / p95 93 ms.
-     - A killed endpoint is seen in 0.53 s; an op queued during the drop is answered 1.6 s later.
-   - Disconnect cases:
-     - Killing the local ssh: the remote endpoint sees EOF and exits within 1.5 s.
-     - Killing the remote endpoint: the local ssh exits (code 255) in about 0.55 s.
-     - A hung link (local ssh stopped): only the endpoint's own idle timeout ends it. So both sides
-       heartbeat, and the endpoint exits after missed pings.
-   - Pitfalls:
-     - A remote server that doesn't read stdin outlives its ssh (no pty, so no SIGHUP). That is what
-       happened with the ssh -L server.
-     - An idle timeout must count heartbeats, not input. Echoing 6.5 MB back over a ~0.7 MB/s link
-       took longer than a 5 s input-idle timer.
-     - Use `BatchMode=yes` and a short `ServerAliveInterval`: the user's ssh config waits up to 180 s.
-   - Not chosen:
-     - `terminal.run --on` plus `terminal.attach` (Herdr's only native stream) is a PTY: echo, `\r\n`
-       and a 4 KB line limit unless set raw, plus a framed-API client.
-     - ssh -L doesn't work for `--via` machines.
+   Numbers vary with the link (vpsme is the limit at about 0.5-1.4 MB/s). The hc stream is within
+   2x of ssh except at the 64 KB p50 (about 2x); a full scene is sent only on subscribe or resync.
+
+   - **hc terminal stream, behaviour:**
+     - It ran 70 s at one echo per second (p50 45 ms) with no cap.
+     - Bytes pass exactly, including UTF-8 and DEL. Lines of 64 KB and 1 MB work: input arrives in
+       ~1 KB pieces, and raw mode removes the 4 KB canonical line limit.
+     - Killing the attach client leaves the remote program running; a new attach reaches it again.
+     - Killing hc's own link to the machine: the attach survives and resumes after hc re-dials it
+       (1.3-3.6 s). Frames sent in that gap are lost (7 of 8 sends over 2 s).
+     - On attach and on resume, hc repaints the screen, so old lines come back.
+     - Until `hc attach` sets its tty raw, the local tty echoes input back.
+     - A user who opens the endpoint's terminal in Herdr could type into it.
+   - **How src/bridge handles that:**
+     - Frames parse from the first `{`.
+     - Frames before the pong to the link's first ping are ignored.
+     - Frames carry per-link sequence numbers: a repeat is dropped, and a gap asks for full state.
+       Up gaps make the endpoint reopen its boards; down gaps make the relay resubscribe.
+     - A lost op is not re-sent: the follow-up is acks plus resend.
+   - **End to end through src/bridge on vpsme (fake sidecar websocket there):**
+     - hc stream: cold start to scene 0.75-0.96 s; ops to patch p50 25-55 / p95 33-120 ms. A
+       killed hc link answers ops again after 1.5-1.8 s, with 2 full-state resyncs; 6 of 80 ops sent
+       4/s were lost.
+     - ssh: subscribe to scene 0.67 s; ops to patch 29 / 93 ms. A killed endpoint is seen in 0.53 s,
+       and a queued op is answered 1.6 s later.
+   - **ssh fallback:**
+     - Built only from `hc machine ls`: `ssh -T -o BatchMode=yes -o ServerAliveInterval=5 <target>`,
+       or `<via command> '<line>'`.
+     - A ControlMaster in the user's ssh config is reused as ssh always does. hc's own control
+       socket (`$XDG_STATE_HOME/herdr-core/<session>/ssh-<hash>`) can't be matched to a machine from
+       outside, and none was running.
+     - Killing the local ssh ends the remote endpoint (EOF) within 1.5 s; killing the endpoint ends
+       ssh in 0.55 s. A hung link is ended only by heartbeats, so both sides ping.
+   - **Pitfalls:**
+     - A remote program that doesn't read stdin outlives its ssh (no pty, no SIGHUP), as the ssh -L
+       server did.
+     - Idle timeouts must count heartbeats, not input: echoing 6.5 MB back over ~0.7 MB/s took longer
+       than a 5 s input timer.
+     - ssh -L needs a listening port on the machine and doesn't work for `--via` machines.
 
 8. **Mermaid pin to editable board (last).** Convert a pinned Mermaid diagram into Excalidraw elements
    headlessly with Pele (`parse()` for structure, the tagged SVG for layout), replacing the upstream

@@ -1,8 +1,11 @@
 // Spike (hd-jf3.7.1): which pipe can carry a long-lived NDJSON stream to a remote machine?
 // Usage: source /tmp/herdr-iso/c/env.sh && /opt/homebrew/bin/bun scripts/bridge-spike.ts [machine] [ssh-target]
-// Measures hc exec (per-call RPC), an ssh stdio pipe and an ssh -L websocket tunnel against an echo
-// endpoint run with `bun -e` (nothing is written on the remote), then kills links and checks for orphans.
+// Measures hc exec (per-call RPC), an hc terminal stream (hc run --on + hc attach), an ssh stdio pipe and an ssh -L
+// websocket tunnel against an echo endpoint, then kills links and checks for orphans. Only /tmp/hd-spike-* is
+// written on the remote and removed again. SPIKE_KILL_HC_LINK=1 also kills the local core's link to the machine:
+// use it only with an isolated hc session.
 import { createServer } from "node:net";
+import { hcLinkArgv, spawnPty } from "../src/bridge/bridge.ts";
 
 const machine = process.argv[2] ?? "vpsme";
 const target = process.argv[3] ?? machine;
@@ -22,7 +25,8 @@ const pct = (xs: number[], p: number) => [...xs].sort((a, b) => a - b)[Math.floo
 const fmt = (xs: number[]) => `p50 ${pct(xs, 0.5).toFixed(1)} ms, p95 ${pct(xs, 0.95).toFixed(1)} ms (n=${xs.length})`;
 const line = (bytes: number, seq: number) => `${JSON.stringify({ seq, pad: "x".repeat(Math.max(0, bytes - 30)) })}\n`;
 
-type Pipe = { send(s: string): void; next(): Promise<string>; proc: Bun.Subprocess<"pipe", "pipe", "inherit"> };
+type Lines = { send(s: string): void; next(): Promise<string> };
+type Pipe = Lines & { proc: Bun.Subprocess<"pipe", "pipe", "inherit"> };
 
 function openPipe(argv: string[]): Pipe {
   const proc = Bun.spawn(argv, { stdin: "pipe", stdout: "pipe", stderr: "inherit" });
@@ -63,19 +67,19 @@ async function remoteOrphans(): Promise<number> {
   return Number(out.trim());
 }
 
-async function rtt(p: Pipe, n: number, bytes: number): Promise<number[]> {
+// Skips other lines: an hc attach first repaints the screen.
+async function rtt(p: Lines, n: number, bytes: number): Promise<number[]> {
   const out: number[] = [];
   for (let i = 0; i < n; i++) {
     const t0 = performance.now();
     p.send(line(bytes, i));
-    const r = await p.next();
-    if (!r.includes(`"seq":${i},`)) throw new Error(`out of order: ${r.slice(0, 40)}`);
+    while (!(await p.next()).includes(`"seq":${i},`));
     out.push(ms(t0));
   }
   return out;
 }
 
-async function throughput(p: Pipe, n: number, bytes: number): Promise<string> {
+async function throughput(p: Lines, n: number, bytes: number): Promise<string> {
   const t0 = performance.now();
   const reading = (async () => {
     for (let i = 0; i < n; i++) await p.next();
@@ -154,6 +158,92 @@ async function remoteDies() {
   await q.proc.exited;
 }
 
+const hc = (...args: string[]) => Bun.spawn(["hc", ...args], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+
+function attach(argv: string[]): Lines & { kill(): void } {
+  const link = spawnPty(argv);
+  const it = link.lines[Symbol.asyncIterator]();
+  return {
+    send: (s) => link.write(s),
+    async next() {
+      const r = await it.next();
+      if (r.done) throw new Error("eof");
+      return r.value;
+    },
+    kill: () => link.kill(),
+  };
+}
+
+/** Connect time: a fresh marker every 200 ms until one comes back from the remote. Until hc attach sets its tty raw,
+ * the local tty echoes input at once; a round trip to the machine takes more than 15 ms. */
+async function firstEcho(p: Lines): Promise<void> {
+  const sent = new Map<string, number>();
+  let done = false;
+  const reading = (async () => {
+    while (!done) {
+      const l = await p.next();
+      const at = sent.get(l.match(/\{"seq":"c\d+"\}/)?.[0] ?? "");
+      if (at !== undefined && performance.now() - at > 15) done = true;
+    }
+  })();
+  for (let i = 0; !done && i < 100; i++) {
+    const mark = `{"seq":"c${i}"}`;
+    sent.set(mark, performance.now());
+    p.send(`${mark}\n`);
+    await Bun.sleep(200);
+  }
+  if (!done) throw new Error("no echo");
+  await reading;
+}
+
+/** Sends every 250 ms until an echo comes back; returns the sends before that one. */
+async function untilEcho(p: Lines, timeoutMs: number): Promise<number> {
+  let got = false;
+  void (async () => {
+    for (;;) if ((await p.next()).includes('"seq":"back"')) got = true;
+  })().catch(() => {});
+  for (let i = 0; i * 250 < timeoutMs; i++) {
+    p.send(`{"seq":"lost${i}"}\n`);
+    p.send('{"seq":"back"}\n');
+    await Bun.sleep(250);
+    if (got) return i;
+  }
+  throw new Error("no echo");
+}
+
+async function hcAttach() {
+  const w = hc("file", "write", "--on", machine, `/tmp/${tag}/echo.js`);
+  w.stdin.write(ECHO);
+  w.stdin.end();
+  await w.exited;
+  let t0 = performance.now();
+  let p = attach(hcLinkArgv(machine, tag, `${remoteBun} /tmp/${tag}/echo.js`));
+  await firstEcho(p);
+  console.log(`hc attach: hc run + attach + first echo ${ms(t0).toFixed(0)} ms`);
+  console.log(`hc attach RTT 1 KB: ${fmt(await rtt(p, 200, 1024))}`);
+  console.log(`hc attach RTT 64 KB: ${fmt(await rtt(p, 30, 65536))}`);
+  console.log(`hc attach RTT 1 MB: ${fmt(await rtt(p, 3, 1 << 20))}`);
+  console.log(`hc attach throughput ${await throughput(p, 2000, 1024)}`);
+  p.kill();
+  t0 = performance.now();
+  p = attach(["hc", "attach", `${machine}/${tag}`]);
+  await firstEcho(p);
+  console.log(`hc attach: client killed, reattach + echo from the same remote program ${ms(t0).toFixed(0)} ms`);
+  if (process.env.SPIKE_KILL_HC_LINK) {
+    const core = JSON.parse(await new Response(hc("server", "status").stdout).text()).pid;
+    const ssh = (await new Response(Bun.spawn(["pgrep", "-P", String(core), "ssh"]).stdout).text()).trim();
+    t0 = performance.now();
+    process.kill(Number(ssh.split("\n")[0]), "SIGKILL");
+    const lost = await untilEcho(p, 30000);
+    console.log(
+      `hc link killed: the attach survives, echoes back after ${ms(t0).toFixed(0)} ms, ${lost} sends lost (at 4/s)`,
+    );
+  }
+  p.kill();
+  await hc("kill", `${machine}/${tag}`).exited;
+  await hc("exec", "--on", machine, "--", "rm", "-rf", `/tmp/${tag}`).exited;
+}
+
 const freePort = () =>
   new Promise<number>((res) => {
     const s = createServer().listen(0, "127.0.0.1", () => {
@@ -211,6 +301,7 @@ async function sshTunnel() {
 const which = process.env.SPIKE_ONLY;
 const run = (name: string) => !which || which.split(",").includes(name);
 if (run("exec")) await hcExecRpc(Number(process.env.SPIKE_EXEC_N ?? 50));
+if (run("attach")) await hcAttach();
 if (run("stdio")) await sshStdio();
 if (run("hung")) await hungLink();
 if (run("remote")) await remoteDies();
