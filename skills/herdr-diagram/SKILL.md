@@ -1,0 +1,46 @@
+---
+name: herdr-diagram
+description: Use when drawing a Mermaid diagram for the user inside the Herdr desktop app, when the user asks to pin, replace or remove a diagram, mentions the diagram badge or Diagrams popup, or when another skill (for example /statechart) produced a chart.mmd worth keeping visible.
+---
+
+# herdr-diagram
+
+Pinned diagrams live next to this terminal in the Herdr app: a badge in the
+pane header shows how many there are and glows until the user opens them.
+Clicking it opens a popup with tabs and pages. You pin with one CLI.
+
+## Rules
+
+1. **Pin only when asked** to keep a diagram visible, or when a diagram is the
+   deliverable (an architecture, a flow, a state machine). Chat diagrams stay in
+   chat as a `mermaid` code block.
+2. **Any Mermaid type works** (flowchart, sequence, state, class, ER, gantt,
+   ...). Rendering is Pele, not Mermaid.js: same syntax, its own layout. No
+   terminal-era limits: labels can be long, LR is fine, cycles are fine.
+3. **Group with tabs.** `--tab` names a tab; pins in one tab belong together
+   (one tab per topic: "Auth flow", "Data model"). Default tab is "Diagrams".
+4. **Change a pin with `replace`, never by adding a second copy.** Remove pins
+   that no longer apply.
+5. **Pele rejects what it can't draw** (exit 1 with the reason). Fix the
+   Mermaid and retry; don't fall back to another tool.
+6. The CLI needs `$HC_TERMINAL_ID`, which the terminal running you already
+   has. Never pass `--terminal` yourself.
+
+## Commands
+
+```sh
+herdr-diagram add [--tab NAME] [--title T] file.mmd     # prints the pin id (d1, d2, ...)
+printf 'flowchart TD\n  a --> b\n' | herdr-diagram add --title "Build"
+herdr-diagram replace d2 [--title T] file.mmd
+herdr-diagram remove d2
+herdr-diagram ls                                        # tabs, ids, titles
+```
+
+Input is bare Mermaid, or Markdown with a `# Title` and a ```mermaid fence
+(the heading becomes the title).
+
+## With other skills
+
+- `/statechart` (pstack) writes `chart.mmd`, a `stateDiagram-v2`: also run
+  `herdr-diagram add --tab "State chart" <out>/chart.mmd` so the user sees it in
+  the app.

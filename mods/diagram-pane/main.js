@@ -1,12 +1,16 @@
-// A pane's header, for layouts that frame their panes:
-//   { "tab": "active", "pane": { "header": { "content": { "mod": "diagram-pane" } } } }
-// Shows the program's icon (the app's program table), the agent's name or
-// the terminal's title, the folder, and the agent's status; buttons split, zoom and close
-// this pane. Props from the app: { pane, terminal }. Click: focus the pane.
+// A pane header (cloned from Herdr's shipped `pane` mod) with a diagram badge:
+// the count of diagrams the agent in this terminal pinned with `herdr-diagram`,
+// glowing while there is one the person hasn't opened yet. Click the badge:
+// the `diagram-popup` viewer for this terminal. Everything else is the shipped
+// header: icon, name, folder, status, split/zoom/close on hover.
+// Layout: { "tab": "active", "pane": { "header": { "content": { "mod": "diagram-pane" }, "height": 30 } } }
 
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { panes, props, run, theme, home } from "herdr";
+import { panes, props, run, theme, home, appHome, readTextFile, watchFolder, openOverlay, shared, setShared } from "herdr";
+import * as fs from "fs/promises";
+
+const DATA = "data/herdr-agent-diagram";
 
 function icon(p, size, color) {
   if (!p?.icon) return null;
@@ -20,7 +24,29 @@ function folder(cwd) {
 }
 
 export default class Pane extends View {
-  init() { this.hovered = false; }
+  init(_props, cx) {
+    this.hovered = false;
+    this.state = null;
+    const terminal = props()?.terminal;
+    if (!terminal) return;
+    const root = `${appHome()}/${DATA}`;
+    this.file = `${root}/${terminal}/state.json`;
+    cx.spawn(async (cx) => {
+      // The folder may not exist before the first pin: make it so the watcher has something to watch.
+      await fs.mkdir(root, { recursive: true }).catch(() => {});
+      await this.load(cx);
+      for (;;) {
+        const changed = await watchFolder(root);
+        if (changed.some((p) => p.includes(`/${terminal}/`))) await this.load(cx);
+      }
+    });
+  }
+
+  async load(cx) {
+    const text = await readTextFile(this.file);
+    try { this.state = text ? JSON.parse(text) : null; } catch { this.state = null; }
+    cx.notify();
+  }
 
   me() {
     return panes().find((p) => p.pane === props()?.pane);
@@ -40,6 +66,27 @@ export default class Pane extends View {
       .child(svg(`mods/diagram-pane/${icon}.svg`).size(14));
   }
 
+  badge(t, pane, terminal) {
+    const count = (this.state?.tabs ?? []).reduce((n, tab) => n + tab.pins.length, 0);
+    if (!count) return null;
+    const unseen = (this.state.rev ?? 0) > (shared(`diagram.seen.${terminal}`) ?? 0);
+    return div()
+      .id(`ph-diag-${pane}`)
+      .flex_none().px(7).h(18).flex().items_center().gap(4).rounded(9)
+      .bg(unseen ? t.accent : t.accent + "26")
+      .text_size(10.5).font_semibold()
+      .text_color(unseen ? t.accent_foreground : t.accent)
+      .when(unseen, (el) => el.loop("opacity", { from: 0.45, to: 1, period: 1100 }))
+      .hover((s) => s.bg(t.accent).text_color(t.accent_foreground))
+      .on_click((_e, cx) => {
+        cx.stop_propagation();
+        setShared(`diagram.seen.${terminal}`, this.state.rev ?? 0);
+        openOverlay({ mod: "diagram-popup", props: { terminal }, kind: "dialog", width: 0.85, height: 0.85 });
+      })
+      .child("◫")
+      .child(String(count));
+  }
+
   render(cx) {
     const t = theme();
     const p = this.me();
@@ -48,6 +95,7 @@ export default class Pane extends View {
     const pic = icon(p.program, 14, t.dim);
     const st = p.status;
     const pane = p.pane;
+    const badge = p.terminal ? this.badge(t, pane, p.terminal) : null;
     return h_flex()
       .id(`pane-head-${pane}`)
       .size_full()
@@ -63,6 +111,7 @@ export default class Pane extends View {
       .when(Boolean(pic), (el) => el.child(pic))
       .child(div().flex_none().truncate().max_w(260).font_medium().text_color(t.foreground).child(name))
       .child(div().flex_1().truncate().text_color(t.dim).child(folder(p.cwd)))
+      .when(Boolean(badge), (el) => el.child(badge))
       .when(st === "working", el => el.child(svg("mods/workspace-chrome/spinner.svg").size(12).flex_none().text_color(t.working).spin(900)))
       .when(st === "blocked", el => el.child(div().flex_none().px(6).h(18).flex().items_center().rounded(5).bg(t.blocked + "26").text_size(10.5).font_semibold().text_color(t.blocked).child("Needs you")))
       .when(st === "done", el => el.child(div().size(7).flex_none().rounded(4).bg(t.done)))

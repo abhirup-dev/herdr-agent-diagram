@@ -1,30 +1,26 @@
 #!/usr/bin/env node
 // herdr-diagram: pin Mermaid diagrams for the terminal this agent runs in ($HC_TERMINAL_ID).
 // State lives in the Herdr app home so the mod can image() the SVGs by relative path:
-//   <app home>/data/herdr-agent-diagram/<terminal>/state.json + <pin>-r<rev>.{dark,light}.svg
+//   <app home>/data/herdr-agent-diagram/<terminal>/state.json + <pin>-r<rev>.svg (raw Pele output, CSS variables intact:
+//   the viewer mod substitutes the live theme colors and UI font at display time)
 //
 //   herdr-diagram add [--tab NAME] [--title T] [file]      mermaid or markdown with a ```mermaid fence; stdin if no file
 //   herdr-diagram replace <id> [--title T] [file]
 //   herdr-diagram remove <id>
 //   herdr-diagram ls [--json]
 //   herdr-diagram clear
-// Options: --terminal <addr> (default $HC_TERMINAL_ID), --png (also write a PNG via resvg)
+// Options: --terminal <addr> (default $HC_TERMINAL_ID)
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
+import { pathToFileURL } from 'node:url'
 import { render } from 'pele'
 
 const APP_HOME = process.env.HERDR_APP_HOME || path.join(os.homedir(), '.config', 'herdr-app')
 const ROOT = path.join(APP_HOME, 'data', 'herdr-agent-diagram')
-const DARK = { bg: '#1e1e1e', fg: '#e6e6e6', muted: '#a0a0a0', line: '#d0d0d0', surface: '#2b2b2b', 'surface-alt': '#333', border: '#777', accent: '#7f9cf5' }
-
-// From diagram-view/herdr/viewer.mjs: resolve Pele's var(--x, default) chains so resvg/GPUI can draw it.
-export function flatten(svg, theme = {}) {
-  const vars = {}
-  svg = svg.replace(/var\(--pele-([a-z-]+),([^()]*(?:\([^()]*\))?[^()]*)\)/g, (_, name, d) => theme[name] ?? d.trim())
-  for (const m of svg.matchAll(/--(_[a-z]+):([^;"]+)/g)) vars[m[1]] = m[2].trim()
-  return svg.replace(/var\(--(_[a-z]+)\)/g, (_, k) => vars[k] ?? 'currentColor')
-}
+// GPUI rasterises an SVG at its declared width/height, then scales the bitmap: declare it big (retina x zoom x viewer upscale).
+const RASTER = 4
+const hires = svg => svg.replace(/(<svg[^>]*?)\swidth="([\d.]+)"\sheight="([\d.]+)"/, (_, a, w, h) => `${a} width="${Math.round(w * RASTER)}" height="${Math.round(h * RASTER)}"`)
 
 // Markdown with a ```mermaid fence (first fence wins, # heading is the title) or bare mermaid.
 export function extract(text) {
@@ -60,25 +56,18 @@ function findPin(state, id) {
   return null
 }
 function unlinkAssets(dir, pin) {
-  for (const f of [pin.dark, pin.light, pin.png]) if (f) fs.rmSync(path.join(APP_HOME, f), { force: true })
+  if (pin.svg) fs.rmSync(path.join(APP_HOME, pin.svg), { force: true })
+  // themed copies the viewer wrote
+  for (const f of fs.existsSync(dir) ? fs.readdirSync(dir) : []) if (f.startsWith(`${pin.id}-r${pin.rev}.`)) fs.rmSync(path.join(dir, f), { force: true })
 }
 
-async function renderPin(dir, terminal, id, rev, mmd, png) {
+function renderPin(dir, terminal, id, rev, mmd) {
   let out
   try { out = render(mmd) } catch (e) { die(`Pele could not draw it: ${e.message}`) }
-  const rel = f => path.posix.join('data', 'herdr-agent-diagram', terminal, f)
-  const files = { dark: rel(`${id}-r${rev}.dark.svg`), light: rel(`${id}-r${rev}.light.svg`) }
+  const svg = path.posix.join('data', 'herdr-agent-diagram', terminal, `${id}-r${rev}.svg`)
   fs.mkdirSync(dir, { recursive: true })
-  fs.writeFileSync(path.join(APP_HOME, files.dark), flatten(out.svg, DARK))
-  fs.writeFileSync(path.join(APP_HOME, files.light), flatten(out.svg))
-  if (png) {
-    // shortcut: PNG only on request; upgrade to automatic fallback once we know which SVG features GPUI drops
-    const { Resvg } = await import('@resvg/resvg-js')
-    files.png = rel(`${id}-r${rev}.png`)
-    const data = new Resvg(flatten(out.svg, DARK), { fitTo: { mode: 'width', value: Math.min(2400, out.width * 2) }, background: DARK.bg, font: { loadSystemFonts: true } }).render().asPng()
-    fs.writeFileSync(path.join(APP_HOME, files.png), data)
-  }
-  return { ...files, width: out.width, height: out.height, type: out.mermaidType }
+  fs.writeFileSync(path.join(APP_HOME, svg), hires(out.svg))
+  return { svg, width: out.width, height: out.height, type: out.mermaidType }
 }
 
 function readInput(file) {
@@ -101,7 +90,7 @@ async function main() {
     if (!mmd) die('empty diagram')
     const id = `d${state.next++}`
     const rev = state.rev + 1
-    const art = await renderPin(dir, terminal, id, rev, mmd, o.png)
+    const art = renderPin(dir, terminal, id, rev, mmd)
     const name = o.tab || 'Diagrams'
     let tab = state.tabs.find(t => t.name === name)
     if (!tab) state.tabs.push(tab = { name, pins: [] })
@@ -114,7 +103,7 @@ async function main() {
     const { mmd, title } = extract(readInput(rest[1]))
     if (!mmd) die('empty diagram')
     const rev = state.rev + 1
-    const art = await renderPin(dir, terminal, found.pin.id, rev, mmd, o.png)
+    const art = renderPin(dir, terminal, found.pin.id, rev, mmd)
     unlinkAssets(dir, found.pin)
     found.tab.pins[found.i] = { ...found.pin, title: o.title || title || found.pin.title, mmd, rev, ...art }
     state.rev = rev
@@ -141,4 +130,5 @@ async function main() {
   } else die(`unknown command ${cmd}`)
 }
 
-main()
+// Only run as a CLI; tests and spikes import extract.
+if (process.argv[1] && import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href) main()

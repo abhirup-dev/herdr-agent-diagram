@@ -4,9 +4,10 @@
   "private": true,
   "type": "module",
   "description": "Agent-pinned Mermaid diagrams for the Herdr desktop app: one CLI + a skill + a mod",
-  "bin": { "herdr-diagram": "bin/herdr-diagram.mjs" },
+  "bin": {
+    "herdr-diagram": "bin/herdr-diagram.mjs"
+  },
   "dependencies": {
-    "@resvg/resvg-js": "^2.6.2",
     "pele": "^1.12.0"
   }
 }
