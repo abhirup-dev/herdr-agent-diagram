@@ -99,6 +99,7 @@ async function main() {
   const o = parseArgs(process.argv.slice(2))
   const [cmd, ...rest] = o._
   if (cmd === undefined || cmd === 'help' || o.help || o.h) { process.stdout.write(HELP); return }
+  if (!['add', 'replace', 'remove', 'ls', 'clear'].includes(cmd)) die(`unknown command ${cmd}; try herdr-diagram help`)
   const terminal = o.terminal || process.env.HC_TERMINAL_ID
   if (!terminal) die('no $HC_TERMINAL_ID: run inside a herdr-core terminal or pass --terminal')
   if (/[^A-Za-z0-9_.-]/.test(terminal)) die(`terminal address "${terminal}" is not a plain id (remote machine/ addresses are not supported yet)`)
@@ -147,7 +148,7 @@ async function main() {
       console.log(`[${t.name}]`)
       for (const p of t.pins) console.log(`  ${p.id}  ${p.title}  (${p.type}, ${p.width}x${p.height})`)
     }
-  } else die(`unknown command ${cmd}; try herdr-diagram help`)
+  }
 }
 
 // Only run as a CLI; tests and spikes import extract.
