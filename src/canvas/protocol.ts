@@ -1,5 +1,6 @@
 // Messages between the sidecar (Bun) and the canvas mod (Herdr), JSON over the sidecar's WebSocket.
-// The sidecar owns conversion: the mod only ever receives full Excalidraw elements.
+// The sidecar owns conversion, rough paths, server writes and undo history; the mod owns interaction.
+import type { Paint } from "./shape.ts";
 import type { CanvasElement } from "./types.ts";
 
 export const SIDECAR_PORT = 3077;
@@ -13,19 +14,48 @@ export type ServerMessage =
       readonly upsert: readonly CanvasElement[];
       readonly remove: readonly string[];
     }
-  | { readonly type: "status"; readonly upstream: "connected" | "disconnected"; readonly detail?: string };
+  | { readonly type: "status"; readonly upstream: "connected" | "disconnected"; readonly detail?: string }
+  /** Rough paths for a draft element (`width` x `height` is the size they were generated at). */
+  | {
+      readonly type: "preview";
+      readonly req: number;
+      readonly id: string;
+      readonly width: number;
+      readonly height: number;
+      readonly paints: readonly Paint[];
+    }
+  | { readonly type: "history"; readonly canUndo: boolean; readonly canRedo: boolean };
 
-/** Mod -> sidecar (milestone 2: user edits). */
+/** Fields an `update` may change: everything the editor edits, nothing that identifies the element. */
+export type ElementFields = Readonly<Record<string, unknown>>;
+
+/** One edit. A batch of ops is one undo step. */
+export type Op =
+  /** A new element: full Excalidraw fields, or skeleton fields (`start`/`end` bind an arrow, `label` adds text). */
+  | { readonly op: "create"; readonly element: ElementFields & { readonly id: string; readonly type: string } }
+  | { readonly op: "update"; readonly id: string; readonly fields: ElementFields }
+  | { readonly op: "remove"; readonly ids: readonly string[] }
+  /** Sets the text inside a container: its bound text element if it has one, else its `label`. */
+  | { readonly op: "label"; readonly containerId: string; readonly text: string };
+
+/** Mod -> sidecar. */
 export type ClientMessage =
-  | { readonly type: "hello"; readonly client: string }
-  | { readonly type: "update"; readonly elements: readonly CanvasElement[] }
-  | { readonly type: "remove"; readonly ids: readonly string[] };
+  | { readonly type: "preview"; readonly req: number; readonly element: CanvasElement }
+  | { readonly type: "ops"; readonly ops: readonly Op[] }
+  | { readonly type: "undo" }
+  | { readonly type: "redo" };
 
-export function parseServerMessage(raw: string): ServerMessage | null {
+const SERVER_TYPES: ReadonlySet<unknown> = new Set(["scene", "patch", "status", "preview", "history"]);
+const CLIENT_TYPES: ReadonlySet<unknown> = new Set(["preview", "ops", "undo", "redo"]);
+
+function parse<T>(raw: string, types: ReadonlySet<unknown>): T | null {
   try {
     const m = JSON.parse(raw) as { type?: unknown };
-    return m.type === "scene" || m.type === "patch" || m.type === "status" ? (m as ServerMessage) : null;
+    return types.has(m.type) ? (m as T) : null;
   } catch {
     return null;
   }
 }
+
+export const parseServerMessage = (raw: string): ServerMessage | null => parse(raw, SERVER_TYPES);
+export const parseClientMessage = (raw: string): ClientMessage | null => parse(raw, CLIENT_TYPES);

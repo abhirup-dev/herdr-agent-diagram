@@ -8,10 +8,11 @@
 import type { ServerWebSocket } from "bun";
 import { prepareScene } from "mcp-excalidraw-server/dist/core/render/excalidraw-node/index.js";
 import { renderScene } from "mcp-excalidraw-server/dist/core/render/index.js";
-import { type ServerMessage, SIDECAR_PORT } from "../canvas/protocol.ts";
+import { type ClientMessage, parseClientMessage, type ServerMessage, SIDECAR_PORT } from "../canvas/protocol.ts";
 import { elementPaints } from "../canvas/shape.ts";
 import { type CanvasElement, isCanvasElement } from "../canvas/types.ts";
-import { applyEvent, diff, type RawElement, type UpstreamEvent, withSeeds } from "./mirror.ts";
+import { applyEvent, diff, type RawElement, stableSeed, type UpstreamEvent, withSeeds } from "./mirror.ts";
+import { type Rest, Writer } from "./writer.ts";
 
 const upstream = (process.env.EXPRESS_SERVER_URL ?? "http://127.0.0.1:3000").replace(/\/$/, "");
 const port = Number(process.env.CANVAS_SIDECAR_PORT ?? SIDECAR_PORT);
@@ -92,6 +93,39 @@ const postJson = (path: string, body: unknown) =>
     body: JSON.stringify(body),
   });
 
+// --- edits from the mod: REST writes with undo history, and rough paths for drafts.
+async function call(method: string, path: string, body?: unknown): Promise<RawElement> {
+  const res = await fetch(`${upstream}${path}`, {
+    method,
+    headers: { "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  const json = (await res.json()) as { success?: boolean; element?: RawElement; error?: string };
+  if (!res.ok || json.success === false) throw new Error(`${method} ${path}: ${json.error ?? res.status}`);
+  return json.element ?? ({ id: "" } as RawElement);
+}
+const rest: Rest = {
+  create: (el) => call("POST", "/api/elements", el),
+  update: (id, fields) => call("PUT", `/api/elements/${encodeURIComponent(id)}`, fields),
+  remove: async (id) => void (await call("DELETE", `/api/elements/${encodeURIComponent(id)}`)),
+};
+const writer = new Writer(
+  rest,
+  { raw: () => raw, prepared: (id) => prepared.get(id) as Readonly<Record<string, unknown>> | undefined },
+  (canUndo, canRedo) => broadcast({ type: "history", canUndo, canRedo }),
+);
+
+function onClient(ws: ServerWebSocket<unknown>, m: ClientMessage): void {
+  const fail = (err: unknown) => log(`${m.type} failed: ${String(err)}`);
+  if (m.type === "preview") {
+    const e = typeof m.element.seed === "number" ? m.element : { ...m.element, seed: stableSeed(m.element.id) };
+    const paints = e.type === "text" ? [] : elementPaints(e);
+    send(ws, { type: "preview", req: m.req, id: e.id, width: e.width, height: e.height, paints });
+  } else if (m.type === "ops") writer.apply(m.ops).catch(fail);
+  else if (m.type === "undo") writer.undo().catch(fail);
+  else writer.redo().catch(fail);
+}
+
 // --- upstream connection, with reconnect.
 function connectUpstream(delay = 0): void {
   setTimeout(() => {
@@ -132,8 +166,12 @@ Bun.serve({
       mods.add(ws);
       send(ws, status());
       send(ws, snapshot());
+      send(ws, { type: "history", canUndo: writer.canUndo, canRedo: writer.canRedo });
     },
-    message() {}, // milestone 2: user edits
+    message(ws, data) {
+      const m = parseClientMessage(String(data));
+      if (m) onClient(ws, m);
+    },
     close(ws) {
       mods.delete(ws);
     },

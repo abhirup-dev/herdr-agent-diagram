@@ -25,7 +25,7 @@ function ordered(byId: ReadonlyMap<string, CanvasElement>): CanvasElement[] {
 
 /** Applies a sidecar message; returns the same scene when nothing changes. Ids of changed elements go to `changed`. */
 export function applyMessage(scene: Scene, m: ServerMessage, changed?: Set<string>): Scene {
-  if (m.type === "status") return scene;
+  if (m.type !== "scene" && m.type !== "patch") return scene;
   if (m.type === "scene") {
     for (const id of scene.byId.keys()) changed?.add(id);
     for (const e of m.elements) changed?.add(e.id);
