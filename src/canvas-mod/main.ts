@@ -523,10 +523,14 @@ export default class ExcalCanvas extends View {
       })
       .on_scroll_wheel((e, cx) => {
         this.autoFit = false;
-        if (e.modifiers.platform || e.modifiers.control) {
+        // Herdr delivers a pinch as an empty scroll (no scale), so a plain two-finger swipe zooms instead:
+        // fingers up zooms in. Shift or cmd/ctrl + swipe pans; GPUI deltas already follow the fingers.
+        if (e.modifiers.shift || e.modifiers.platform || e.modifiers.control)
+          this.camera = pan(this.camera, e.delta.x, e.delta.y);
+        else {
           const at = this.local(e);
           this.camera = zoomAt(this.camera, Math.exp(-e.delta.y / 300), [at.x, at.y]);
-        } else this.camera = pan(this.camera, -e.delta.x / z, -e.delta.y / z);
+        }
         cx.stop_propagation();
         cx.notify();
       })
