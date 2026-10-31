@@ -542,6 +542,15 @@ export default class ExcalCanvas extends View {
           this.flush(cx);
         }),
       )
+      .on_mouse_down("middle", (e, cx) => {
+        this.autoFit = false;
+        this.panning = { x: e.position.x, y: e.position.y, cam: this.camera };
+        cx.notify();
+      })
+      .on_mouse_up("middle", (_e, cx) => {
+        this.panning = null;
+        cx.notify();
+      })
       .on_mouse_move((e, cx) => {
         if (this.panning) {
           const p = this.panning;
@@ -570,14 +579,12 @@ export default class ExcalCanvas extends View {
       })
       .on_scroll_wheel((e, cx) => {
         this.autoFit = false;
-        // Herdr delivers a pinch as an empty scroll (no scale), so a plain two-finger swipe zooms instead:
-        // fingers up zooms in. Shift or cmd/ctrl + swipe pans; GPUI deltas already follow the fingers.
-        if (e.modifiers.shift || e.modifiers.platform || e.modifiers.control)
-          this.camera = pan(this.camera, e.delta.x, e.delta.y);
-        else {
+        // Excalidraw's flow: a two-finger swipe pans, cmd/ctrl + swipe zooms (fingers up zooms in). Herdr gives
+        // no pinch scale, so pinch can't zoom. GPUI deltas already follow the fingers.
+        if (e.modifiers.platform || e.modifiers.control) {
           const at = this.local(e);
           this.camera = zoomAt(this.camera, Math.exp(-e.delta.y / 300), [at.x, at.y]);
-        }
+        } else this.camera = pan(this.camera, e.delta.x, e.delta.y);
         cx.stop_propagation();
         cx.notify();
       })
@@ -595,8 +602,9 @@ export default class ExcalCanvas extends View {
       })
       .children(children)
       .children(this.chrome());
-    const cursor =
-      tool === "hand" || this.spaceHeld
+    const cursor = this.panning
+      ? root.cursor_grabbing()
+      : tool === "hand" || this.spaceHeld
         ? root.cursor_grab()
         : tool === "text"
           ? root.cursor_text()

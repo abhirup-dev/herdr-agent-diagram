@@ -175,6 +175,17 @@ describe("editor", () => {
     expect(op.op === "create" && op.element).toMatchObject({ start: { id: "a" }, end: { id: "b" } });
   });
 
+  test("H toggles the hand back to the previous tool; Escape returns to selection (Excalidraw)", () => {
+    const { ed } = setup([]);
+    ed.setTool("rectangle");
+    ed.key("h");
+    expect(ed.tool).toBe("hand");
+    ed.key("h");
+    expect(ed.tool).toBe("rectangle");
+    ed.key("escape");
+    expect(ed.tool).toBe("selection");
+  });
+
   test("dragging an arrow's midpoint adds a bend point; dragging the start point re-normalises", () => {
     const arrow = dragOut(newElement("arrow", 0, 0, DEFAULT_STYLE, "arr", 1), 0, 0, 200, 0, false);
     const { ed, ops } = setup([arrow]);

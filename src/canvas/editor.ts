@@ -535,7 +535,11 @@ export class Editor {
     for (const e of this.elements()) if (!(e.type === "text" && e.containerId)) this.selected.add(e.id);
   }
 
+  /** The tool to return to when the hand is toggled off (Excalidraw's lastActiveTool). */
+  private lastTool: Tool = "selection";
+
   setTool(t: Tool): void {
+    if (t === "hand" && this.tool !== "hand") this.lastTool = this.tool;
     this.tool = t;
     if (t !== "selection") this.selected.clear();
   }
@@ -545,7 +549,8 @@ export class Editor {
     if (this.editing) return false;
     const tool = TOOL_KEYS[keystroke];
     const command = COMMANDS[keystroke];
-    if (tool) this.setTool(tool);
+    // H toggles the hand: pressed again, it returns to the tool before it.
+    if (tool) this.setTool(tool === "hand" && this.tool === "hand" ? this.lastTool : tool);
     else if (command) command(this);
     else return this.arrowKey(keystroke);
     return true;
@@ -579,7 +584,10 @@ const scaleFieldsOf = (d: CanvasElement): ElementFields => {
 const COMMANDS: Readonly<Record<string, (ed: Editor) => void>> = {
   backspace: (ed) => ed.remove([...ed.selected]),
   delete: (ed) => ed.remove([...ed.selected]),
-  escape: (ed) => ed.clearSelection(),
+  escape: (ed) => {
+    ed.setTool("selection");
+    ed.clearSelection();
+  },
   "cmd-a": (ed) => ed.selectAll(),
   "ctrl-d": (ed) => ed.duplicate(), // cmd-d is Herdr's split-pane
 };
