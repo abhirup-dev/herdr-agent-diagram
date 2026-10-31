@@ -1,6 +1,6 @@
 // herdr-draw canvas: the live Excalidraw canvas as a pane to the right of this agent's terminal.
-// Pieces: the canvas server (mcp-excalidraw-server, REST on $EXPRESS_SERVER_URL) and the canvas sidecar
-// (bun src/sidecar/main.ts on $CANVAS_SIDECAR_PORT, which feeds the excal-canvas mod and answers screenshots).
+// One piece: the herdr-draw sidecar (bun src/sidecar/main.ts on $CANVAS_SIDECAR_PORT). It owns every board on this
+// machine: board REST at /b/<board>/api (board = this terminal's id), and the excal-canvas mod's websocket.
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -8,23 +8,27 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO = path.resolve(path.dirname(fs.realpathSync(fileURLToPath(import.meta.url))), "../..");
-// shortcut: assumes the dependency is installed under this package (not hoisted); resolve it properly once we publish.
-const SERVER_BIN = path.join(REPO, "node_modules/.bin/mcp-excalidraw-server");
+const SIDECAR_SERVICE = "herdr-draw-sidecar";
 
 export const HELP = `herdr-draw canvas: the live Excalidraw canvas, as a native pane beside this terminal.
 
 usage: herdr-draw canvas <command>
 
   open        show the canvas beside this terminal (starts what it needs); each run adds a pane
-  start       only start the canvas server and sidecar
-  status      JSON health of the server, the sidecar and the board
-  <other>     passed to the board CLI (mcp-excalidraw-server), e.g. describe, screenshot
+  start       only start the sidecar
+  status      JSON health of the sidecar and its boards
+  <other>     a command on this terminal's board: add, apply, update, delete, get, query, describe,
+              screenshot, export, import, snapshot, arrange, clear
 `;
 
-const urls = (env) => ({
-  server: (env.EXPRESS_SERVER_URL ?? "http://127.0.0.1:3000").replace(/\/$/, ""),
-  sidecar: `http://127.0.0.1:${env.CANVAS_SIDECAR_PORT ?? 3077}`,
-});
+const port = (env) => Number(env.CANVAS_SIDECAR_PORT ?? 3077);
+/** This terminal's board: its terminal id when path-safe (src/canvas/protocol.ts isLocalBoardId), else "default". */
+const boardId = (env) =>
+  /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(env.HC_TERMINAL_ID ?? "") ? env.HC_TERMINAL_ID : "default";
+const urls = (env) => {
+  const sidecar = `http://127.0.0.1:${port(env)}`;
+  return { sidecar, board: `${sidecar}/b/${boardId(env)}` };
+};
 
 const die = (msg) => {
   process.stderr.write(`herdr-draw canvas: ${msg}\n`);
@@ -44,47 +48,70 @@ async function waitFor(url, what) {
   die(`${what} did not come up (${url})`);
 }
 
-// Every board command other than open/start/status goes through here (agent B swaps the body for the board CLI).
+/** True when the herdr-draw sidecar (not an older canvas sidecar or anything else) answers on the port. */
+const sidecarUp = (env) =>
+  fetch(`${urls(env).sidecar}/health`)
+    .then((r) => r.json())
+    .then(
+      (j) => j?.service === SIDECAR_SERVICE,
+      () => false,
+    );
+
+/**
+ * A bun that runs: HERDR_DRAW_BUN, this process when it is bun, then the usual install places, then PATH. Each is
+ * tried with --version, since a version-manager shim on PATH can fail (mise without a trust record).
+ */
+function bunBin(env) {
+  const candidates = [
+    env.HERDR_DRAW_BUN,
+    process.versions.bun ? process.execPath : undefined,
+    path.join(os.homedir(), ".bun/bin/bun"),
+    "/opt/homebrew/bin/bun",
+    "/usr/local/bin/bun",
+    "bun",
+  ];
+  const ok = candidates.find((c) => c && spawnSync(c, ["--version"], { stdio: "ignore", env }).status === 0);
+  if (!ok) die("bun not found: install it (https://bun.sh) or set HERDR_DRAW_BUN");
+  return ok;
+}
+
+// Every board command other than open/start/status: the board CLI (src/board/cli.ts) against this terminal's board.
 export function boardCli(argv, env) {
-  const r = spawnSync(SERVER_BIN, argv, { stdio: "inherit", env: { ...env, EXPRESS_SERVER_URL: urls(env).server } });
+  const r = spawnSync(bunBin(env), [path.join(REPO, "src/board/cli.ts"), ...argv], {
+    stdio: "inherit",
+    env: { ...env, EXPRESS_SERVER_URL: urls(env).board },
+  });
   if (r.error) die(r.error.message);
   return r.status ?? 1;
 }
 
-// Starts whatever of the canvas server and the sidecar is down.
+// Starts the sidecar if it is down. Something else holding the port is an error, not "up".
 export async function ensureBackend(env) {
-  const { server, sidecar } = urls(env);
-  if (!(await reachable(`${server}/api/elements`))) {
-    // `start` takes its port from EXPRESS_SERVER_URL
-    execFileSync(SERVER_BIN, ["start"], {
-      env: { ...env, EXPRESS_SERVER_URL: server },
-      stdio: ["ignore", "ignore", "inherit"],
-    });
-    await waitFor(`${server}/api/elements`, "canvas server");
-  }
-  if (!(await reachable(sidecar))) {
-    const log = path.join(os.tmpdir(), `herdr-draw-sidecar-${new URL(sidecar).port}.log`);
-    const fd = fs.openSync(log, "a");
-    spawn("bun", [path.join(REPO, "src/sidecar/main.ts")], {
-      cwd: REPO,
-      env: { ...env, EXPRESS_SERVER_URL: server },
-      detached: true,
-      stdio: ["ignore", fd, fd],
-    }).unref();
-    await waitFor(sidecar, `canvas sidecar (log: ${log})`);
-  }
+  if (await sidecarUp(env)) return;
+  const { sidecar } = urls(env);
+  if (await reachable(sidecar))
+    die(`port ${port(env)} is taken by something other than ${SIDECAR_SERVICE} (an older canvas sidecar?)`);
+  const log = path.join(os.tmpdir(), `herdr-draw-sidecar-${port(env)}.log`);
+  const fd = fs.openSync(log, "a");
+  spawn(bunBin(env), [path.join(REPO, "src/sidecar/main.ts")], {
+    cwd: REPO,
+    env: { ...env, CANVAS_SIDECAR_PORT: String(port(env)) },
+    detached: true,
+    stdio: ["ignore", fd, fd],
+  }).unref();
+  await waitFor(`${sidecar}/health`, `herdr-draw sidecar (log: ${log})`);
 }
 
 export async function status(env) {
-  const { server, sidecar } = urls(env);
-  const elements = await fetch(`${server}/api/elements`)
+  const { sidecar, board } = urls(env);
+  const health = await fetch(`${sidecar}/health`)
     .then((r) => r.json())
-    .then((j) => j.count)
-    .catch(() => undefined);
+    .catch(() => null);
+  const up = health?.service === SIDECAR_SERVICE;
   return {
-    server: { url: server, up: elements !== undefined },
-    sidecar: { url: sidecar, up: await reachable(sidecar) },
-    board: elements === undefined ? null : { elements },
+    sidecar: { url: sidecar, up, pid: up ? health.pid : null },
+    board: { id: boardId(env), url: board },
+    boards: up ? health.boards : [],
   };
 }
 
@@ -98,7 +125,8 @@ export async function open(env) {
     .flatMap((s) => s.tabs)
     .flatMap((t) => t.terminals)
     .find((t) => t.terminal === terminal)?.pane;
-  const args = { direction: "right", mod: "excal-canvas", ...(pane ? { pane } : {}) };
+  const props = { board: boardId(env), port: port(env) };
+  const args = { direction: "right", mod: "excal-canvas", props, ...(pane ? { pane } : {}) };
   // Marks this terminal as drawing: the diagram-pane header then shows a canvas badge that reopens the pane.
   if (terminal) {
     const dir = path.join(
@@ -110,7 +138,7 @@ export async function open(env) {
     fs.writeFileSync(path.join(dir, "canvas.json"), JSON.stringify({ opened: new Date().toISOString() }));
   }
   execFileSync("herdr-app", ["do", "pane.split", JSON.stringify(args)], { stdio: "inherit", env });
-  console.log(`canvas open${pane ? ` beside ${terminal}` : " beside the focused pane"}: ${urls(env).server}`);
+  console.log(`canvas open${pane ? ` beside ${terminal}` : " beside the focused pane"}: ${urls(env).board}`);
 }
 
 export async function canvas(argv, env) {
