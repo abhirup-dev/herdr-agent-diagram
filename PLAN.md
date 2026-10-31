@@ -63,6 +63,41 @@ Decided 2026-10-31. One package and CLI, `herdr-draw`, for both kinds of visual:
    stdin/stdout pipe over Herdr's own machine link. Ids are machine-qualified (`vpsme/t1f`), and E2's
    protocol should use them from the start so local and remote share one code path.
 
+   **Bridge spike (hd-jf3.7.1, 2026-10-31, laptop to vpsme, `scripts/bridge-spike.ts`).**
+   `hc exec --on <m> -i` is not a stream. It reads stdin to EOF, runs the program, and returns its
+   output at exit (base64 in `machine.exec`). Its timeout is 60 s by default and at most 600 s. So
+   the bridge is the machine's own link run as a stdio pipe: `ssh -T -o BatchMode=yes <target>
+   <remote endpoint>` (for `--via` machines, the via command with the line as its last argument).
+
+   | Pipe | 1 KB round trip p50 / p95 | Notes |
+   |---|---|---|
+   | `hc exec -i`, one call per message | 57-64 / 123-278 ms | batch only; usable for one-shot RPC (install, status) |
+   | ssh stdio pipe (chosen) | 26 / 95 ms | 64 KB: 56-104 / 190-420 ms; 1 MB scene: 0.7-1.6 s |
+   | ssh -L + websocket | 28 / 95 ms | same latency; ssh machines only; needs a listening port there |
+
+   - Throughput over the ssh pipe: 540-1190 msg/s for 1 KB patches, 0.6-1.4 MB/s; the link is the limit.
+   - Connect plus first echo: 0.6-1.5 s; reconnect after a drop: 0.6-0.95 s.
+   - A 70 s stream at one echo per second ran fine (p50 26 ms), with no cap.
+   - End to end through `src/bridge` (Bridge, then ssh, then endpoint, then a fake sidecar websocket
+     on vpsme):
+     - subscribe to scene: 0.67 s; ops to patch: p50 29 / p95 93 ms.
+     - A killed endpoint is seen in 0.53 s; an op queued during the drop is answered 1.6 s later.
+   - Disconnect cases:
+     - Killing the local ssh: the remote endpoint sees EOF and exits within 1.5 s.
+     - Killing the remote endpoint: the local ssh exits (code 255) in about 0.55 s.
+     - A hung link (local ssh stopped): only the endpoint's own idle timeout ends it. So both sides
+       heartbeat, and the endpoint exits after missed pings.
+   - Pitfalls:
+     - A remote server that doesn't read stdin outlives its ssh (no pty, so no SIGHUP). That is what
+       happened with the ssh -L server.
+     - An idle timeout must count heartbeats, not input. Echoing 6.5 MB back over a ~0.7 MB/s link
+       took longer than a 5 s input-idle timer.
+     - Use `BatchMode=yes` and a short `ServerAliveInterval`: the user's ssh config waits up to 180 s.
+   - Not chosen:
+     - `terminal.run --on` plus `terminal.attach` (Herdr's only native stream) is a PTY: echo, `\r\n`
+       and a 4 KB line limit unless set raw, plus a framed-API client.
+     - ssh -L doesn't work for `--via` machines.
+
 8. **Mermaid pin to editable board (last).** Convert a pinned Mermaid diagram into Excalidraw elements
    headlessly with Pele (`parse()` for structure, the tagged SVG for layout), replacing the upstream
    browser-only `from-mermaid`. Flowcharts first, then state and class; "Edit as board" in the view

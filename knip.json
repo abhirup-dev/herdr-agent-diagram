@@ -3,6 +3,7 @@
   "entry": [
     "src/canvas-mod/main.ts",
     "src/sidecar/main.ts",
+    "src/bridge/endpoint.ts",
     "bin/*.mjs",
     "scripts/*.ts",
     "mods/*/main.js",
