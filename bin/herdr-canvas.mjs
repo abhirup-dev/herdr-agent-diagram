@@ -21,7 +21,7 @@ async function waitFor(url, what) {
   die(`${what} did not come up (${url})`)
 }
 
-async function open() {
+async function start() {
   if (!(await reachable(`${SERVER}/api/elements`))) {
     execFileSync('npx', ['-y', 'mcp-excalidraw-server', 'start'], { stdio: ['ignore', 'ignore', 'inherit'] })
     await waitFor(`${SERVER}/api/elements`, 'canvas server')
@@ -31,19 +31,31 @@ async function open() {
     spawn('bun', [path.join(REPO, 'src/sidecar/main.ts')], { cwd: REPO, detached: true, stdio: ['ignore', log, log] }).unref()
     await waitFor(SIDECAR, `canvas sidecar (log: ${LOG})`)
   }
+}
+
+async function open() {
+  await start()
   // Split this agent's pane, not whichever pane has focus. shortcut: splits every time (mod panes are not
   // listed by `herdr-app ls`, so an open canvas can't be detected); run it once per session.
   const terminal = process.env.HC_TERMINAL_ID
   const tabs = JSON.parse(execFileSync('herdr-app', ['ls'], { encoding: 'utf8' })).spaces.flatMap((s) => s.tabs)
   const pane = tabs.flatMap((t) => t.terminals).find((t) => t.terminal === terminal)?.pane
   const args = { direction: 'right', mod: 'excal-canvas', ...(pane ? { pane } : {}) }
+  // Marks this terminal as drawing: the diagram-pane header then shows a canvas badge that reopens the pane.
+  if (terminal) {
+    const dir = path.join(process.env.HERDR_APP_HOME ?? path.join(os.homedir(), '.config/herdr-app'), 'data/herdr-agent-diagram', terminal)
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'canvas.json'), JSON.stringify({ opened: new Date().toISOString() }))
+  }
   execFileSync('herdr-app', ['do', 'pane.split', JSON.stringify(args)], { stdio: 'inherit' })
   console.log(`canvas open${pane ? ` beside ${terminal}` : ' beside the focused pane'}: ${SERVER}`)
 }
 
 const cmd = process.argv[2]
 if (cmd === 'open') open().catch((e) => die(e.message))
+else if (cmd === 'start') start().catch((e) => die(e.message))
 else {
-  console.log('usage: herdr-canvas open   show the live Excalidraw canvas beside this terminal (starts what it needs)')
+  console.log(`usage: herdr-canvas open    show the live Excalidraw canvas beside this terminal (starts what it needs)
+       herdr-canvas start   only start the canvas server and sidecar`)
   process.exit(cmd && cmd !== 'help' ? 2 : 0)
 }

@@ -3,3 +3,5 @@ scratch/*/gpui-kit.d.ts
 scratch/*/herdr.d.ts
 types/herdr-app
 dist/
+mods/*/gpui-kit.d.ts
+mods/*/jsconfig.json

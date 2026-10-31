@@ -1,6 +1,7 @@
 // A badge-only pane header: the count of diagrams the agent in this terminal pinned
 // with `herdr-diagram`, in the header's right corner, and nothing at all without one.
-// Click it: the `diagram-popup` viewer for this terminal.
+// Click it: the `diagram-popup` viewer for this terminal. Once the agent ran `herdr-canvas open`, a second
+// badge toggles the live Excalidraw canvas (`excal-canvas`) as a pane to the right.
 // Layout: { "tab": "active", "pane": { "header": { "content": { "mod": "diagram-pane",
 //   "props": { "animate": "always", "period": 1100 } }, "height": 22, "position": "top", "reveal": "hover" } } }
 // props.animate: "always" (pulse while there are diagrams), "unseen" (only while one is unopened)
@@ -8,7 +9,7 @@
 
 import { View, div } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { props, theme, appHome, readTextFile, watchFolder, openOverlay, shared, setShared } from "herdr";
+import { props, theme, appHome, home, readTextFile, watchFolder, openOverlay, shared, setShared, panes, run, exec } from "herdr";
 import * as fs from "fs/promises";
 
 const DATA = "data/herdr-agent-diagram";
@@ -34,7 +35,30 @@ export default class Pane extends View {
   async load(cx) {
     const text = await readTextFile(this.file);
     try { this.state = text ? JSON.parse(text) : null; } catch { this.state = null; }
+    this.canvas = Boolean(await readTextFile(this.file.replace(/state\.json$/, "canvas.json")));
     cx.notify();
+  }
+
+  /** The canvas badge: closes the canvas pane in this tab, or starts the services and splits one in on the right. */
+  canvasBadge(t, pane) {
+    if (!this.canvas) return null;
+    const tab = panes().find((p) => p.pane === pane)?.tab;
+    const open = panes().find((p) => p.mod === "excal-canvas" && p.tab === tab);
+    return div()
+      .id(`ph-canvas-${pane}`)
+      .flex_none().px(7).h(18).flex().items_center().rounded(9)
+      .bg(open ? t.accent : t.background).border_1().border_color(t.accent).shadow_md()
+      .text_size(10.5).font_bold()
+      .text_color(open ? t.accent_foreground : t.accent)
+      .on_click((_e, cx) => {
+        cx.stop_propagation();
+        if (open) return run("pane.close", { pane: open.pane });
+        cx.spawn(async () => {
+          await exec(`${home()}/.local/bin/herdr-canvas`, ["start"]).catch(() => null);
+          run("pane.split", { pane, direction: "right", mod: "excal-canvas" });
+        });
+      })
+      .child("✎ canvas");
   }
 
   badge(t, pane, terminal) {
@@ -63,8 +87,8 @@ export default class Pane extends View {
   render() {
     const { pane, terminal } = props() ?? {};
     const t = theme();
-    const badge = terminal ? this.badge(t, pane, terminal) : null;
-    // The strip is drawn over the terminal: barely tinted, so only the badge stands out.
-    return h_flex().size_full().justify_end().items_center().px(6).bg(t.background + "1a").when(Boolean(badge), (el) => el.child(badge));
+    const badges = terminal ? [this.canvasBadge(t, pane), this.badge(t, pane, terminal)].filter(Boolean) : [];
+    // The strip is drawn over the terminal: barely tinted, so only the badges stand out.
+    return h_flex().size_full().justify_end().items_center().gap(4).px(6).bg(t.background + "1a").children(badges);
   }
 }
