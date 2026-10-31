@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { fit, toScreen, toWorld, zoomAt } from "../src/canvas/camera.ts";
-import { diamondPoints, elementPaints, isTransparent, withOpacity } from "../src/canvas/shape.ts";
+import { elementPaints, isTransparent, withOpacity } from "../src/canvas/shape.ts";
 import type { CanvasElement, LinearElement, ShapeElement } from "../src/canvas/types.ts";
 
 const base = {
@@ -80,8 +80,29 @@ describe("shape", () => {
     } as const satisfies CanvasElement;
     expect(elementPaints(text)).toEqual([]);
   });
-  test("diamond points match Excalidraw's", () => {
-    expect(diamondPoints({ width: 100, height: 60 })).toEqual([51, 0, 100, 31, 51, 60, 0, 31]);
+  test("freedraw: one filled outline parsed from Excalidraw's SVG path", () => {
+    const pts = [
+      [0, 0],
+      [10, 5],
+      [30, 20],
+      [50, 10],
+    ] as const;
+    const fd = {
+      ...base,
+      id: "f",
+      type: "freedraw",
+      x: 0,
+      y: 0,
+      width: 50,
+      height: 20,
+      points: pts,
+      pressures: [],
+      simulatePressure: true,
+    } as const;
+    const [outline] = elementPaints(fd as unknown as CanvasElement);
+    expect(outline?.kind).toBe("fill");
+    expect(outline?.ops[0]?.op).toBe("move");
+    expect(outline?.ops.some((o) => o.op === "bcurveTo")).toBe(true);
   });
   test("colour helpers", () => {
     expect(isTransparent("transparent")).toBe(true);

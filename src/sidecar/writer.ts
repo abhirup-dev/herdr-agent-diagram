@@ -9,6 +9,7 @@ export interface Rest {
   create(element: ElementFields): Promise<RawElement>;
   update(id: string, fields: ElementFields): Promise<RawElement>;
   remove(id: string): Promise<void>;
+  get(id: string): Promise<RawElement | null>;
 }
 
 /** What the writer reads: the raw mirror, and converted elements (for generated ids such as labels). */
@@ -143,8 +144,43 @@ export class Writer {
       const v = el[k] ?? converted?.[k];
       if (v !== undefined) prev[k] = v;
     }
+    const bent = GEOMETRY.some((k) => k in op.fields) ? this.bentArrowsOf(op.id) : [];
     raw.set(op.id, await this.rest.update(op.id, op.fields));
+    for (const a of bent) await this.keepBend(a);
     return { op, inverse: [{ op: "update", id: op.id, fields: prev }] };
+  }
+
+  /** Arrows/lines bound to `id` that have bend points (more than two points). */
+  private bentArrowsOf(id: string): RawElement[] {
+    const ref = (b: unknown) => (b as { elementId?: unknown; id?: unknown } | null | undefined) ?? {};
+    return [...this.src.raw().values()].filter((e) => {
+      if ((e.type !== "arrow" && e.type !== "line") || !Array.isArray(e.points) || e.points.length < 3) return false;
+      const ends = [ref(e.startBinding).elementId, ref(e.endBinding).elementId, ref(e.start).id, ref(e.end).id];
+      return ends.includes(id);
+    });
+  }
+
+  /**
+   * The server re-routes a moved shape's bound arrows as straight lines, dropping bend points. Excalidraw keeps
+   * them: take the server's new endpoints, put the old middle points (fixed in world space) back between them.
+   */
+  private async keepBend(before: RawElement): Promise<void> {
+    const after = await this.rest.get(before.id);
+    const pts = after?.points as readonly (readonly [number, number])[] | undefined;
+    const oldPts = before.points as readonly (readonly [number, number])[];
+    if (!after || !pts || pts.length < 2 || pts.length >= oldPts.length) return;
+    const [ax, ay] = [after.x as number, after.y as number];
+    const [bx, by] = [before.x as number, before.y as number];
+    const first = pts[0] ?? [0, 0];
+    const last = pts[pts.length - 1] ?? [0, 0];
+    const [sx, sy] = [ax + first[0], ay + first[1]];
+    const middle = oldPts.slice(1, -1).map(([x, y]): [number, number] => [bx + x - sx, by + y - sy]);
+    const points: [number, number][] = [[0, 0], ...middle, [ax + last[0] - sx, ay + last[1] - sy]];
+    const xs = points.map((p) => p[0]);
+    const ys = points.map((p) => p[1]);
+    const width = Math.max(...xs) - Math.min(...xs);
+    const height = Math.max(...ys) - Math.min(...ys);
+    this.src.raw().set(before.id, await this.rest.update(before.id, { x: sx, y: sy, points, width, height }));
   }
 
   private async label(op: Extract<Op, { op: "label" }>): Promise<Done | null> {
@@ -159,6 +195,8 @@ export class Writer {
     return { op, inverse: [{ op: "label", containerId: op.containerId, text: typeof old === "string" ? old : "" }] };
   }
 }
+
+const GEOMETRY = ["x", "y", "width", "height"] as const;
 
 interface Done {
   readonly op: Op;

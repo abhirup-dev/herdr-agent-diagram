@@ -8,10 +8,13 @@
     "herdr-diagram": "bin/herdr-diagram.mjs"
   },
   "dependencies": {
+    "@excalidraw/common": "0.18.0-4ce8305",
+    "@excalidraw/element": "0.18.0-4ce8305",
+    "@excalidraw/math": "0.18.0-4ce8305",
     "@resvg/resvg-js": "^2.6.2",
     "mcp-excalidraw-server": "2.1.2",
+    "path-data-parser": "0.1.0",
     "pele": "^1.12.0",
-    "perfect-freehand": "1.2.3",
     "roughjs": "4.6.6"
   },
   "devDependencies": {
@@ -25,7 +28,7 @@
     "lint": "biome check .",
     "fix": "biome check --write .",
     "test": "bun test",
-    "build:mod": "bun build src/canvas-mod/main.ts --outdir dist/mods/excal-canvas --target browser --format esm --external gpui-kit --external gpui-base --external herdr --external websocket --external gpui-fps && cp src/canvas-mod/mod.json dist/mods/excal-canvas/ && bun scripts/check-bundle.ts dist/mods/excal-canvas/main.js",
+    "build:mod": "bun build src/canvas-mod/main.ts --outdir dist/mods/excal-canvas --target browser --format esm --external gpui-kit --external gpui-base --external herdr --external websocket --external gpui-fps && cp src/canvas-mod/mod.json dist/mods/excal-canvas/ && cp -R src/canvas-mod/icons dist/mods/excal-canvas/ && bun scripts/check-bundle.ts dist/mods/excal-canvas/main.js",
     "check": "bun run typecheck && bun run lint && bun run test"
   },
   "patchedDependencies": {

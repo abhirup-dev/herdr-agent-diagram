@@ -375,11 +375,84 @@ export function simplePaints(e: CanvasElement): Paint[] {
     ];
     return [...fill(ops), stroke(ops)];
   }
-  if (hasPoints(e)) return e.points.length > 1 ? [stroke(poly(e.points, false))] : [];
-  return [];
+  if (!hasPoints(e) || e.points.length < 2) return [];
+  const pts = e.points;
+  const segs = e.roundness && pts.length > 2 ? curveSegments(pts) : null;
+  const line: Paint["ops"] = segs
+    ? [
+        { op: "move", data: [pts[0]?.[0] ?? 0, pts[0]?.[1] ?? 0] },
+        ...segs.map((s) => ({ op: "bcurveTo" as const, data: s.flat() })),
+      ]
+    : poly(pts, false);
+  if (e.type !== "arrow") return [stroke(line)];
+  // Plain arrowheads, aimed along the curve's end tangent.
+  const head = (tip: Point, from: Point): Paint => {
+    const a = Math.atan2(tip[1] - from[1], tip[0] - from[0]);
+    const wing = (d: number): Point => [tip[0] - 18 * Math.cos(a + d), tip[1] - 18 * Math.sin(a + d)];
+    return stroke(poly([wing(0.35), tip, wing(-0.35)], false));
+  };
+  const first = segs?.[0]?.[0] ?? pts[1];
+  const last = segs?.[segs.length - 1]?.[1] ?? pts[pts.length - 2];
+  const out = [stroke(line)];
+  if (e.endArrowhead && last) out.push(head(pts[pts.length - 1] as Point, last));
+  if (e.startArrowhead && first) out.push(head(pts[0] as Point, first));
+  return out;
+}
+
+/**
+ * The cubic Bezier segments ([control1, control2, end], one per gap) of the curve roughjs's `curve()` draws through
+ * `pts` for round lines: Catmull-Rom with the end points doubled, tightness 0.
+ */
+export function curveSegments(pts: readonly Point[]): [Point, Point, Point][] {
+  const p = [pts[0], ...pts, pts[pts.length - 1]] as Point[];
+  const out: [Point, Point, Point][] = [];
+  for (let i = 1; i < p.length - 2; i++) {
+    const [a, b, c, d] = [p[i - 1], p[i], p[i + 1], p[i + 2]] as [Point, Point, Point, Point];
+    out.push([
+      [b[0] + (c[0] - a[0]) / 6, b[1] + (c[1] - a[1]) / 6],
+      [c[0] - (d[0] - b[0]) / 6, c[1] - (d[1] - b[1]) / 6],
+      c,
+    ]);
+  }
+  return out;
 }
 
 /** Text elements bound to `ids` (they move and die with their containers). */
 export function boundTexts(order: readonly CanvasElement[], ids: ReadonlySet<string>): TextElement[] {
   return order.filter((e): e is TextElement => e.type === "text" && e.containerId !== null && ids.has(e.containerId));
 }
+
+export type PointHandle = { readonly kind: "point" | "mid"; readonly index: number; readonly at: Point };
+
+/** Handles on a line or arrow, in world units: one per point, plus one at each segment's midpoint. */
+export function pointHandles(e: LinearElement): PointHandle[] {
+  const out: PointHandle[] = [];
+  // shortcut: curve midpoints at Bezier t=0.5; Excalidraw uses 50% of arc length (visually close for normal bends).
+  const segs = e.roundness && e.points.length > 2 ? curveSegments(e.points) : null;
+  e.points.forEach(([px, py], i) => {
+    out.push({ kind: "point", index: i, at: [e.x + px, e.y + py] });
+    const next = e.points[i + 1];
+    const s = segs?.[i];
+    if (!next) return;
+    const mid: Point = s
+      ? [(px + 3 * s[0][0] + 3 * s[1][0] + next[0]) / 8, (py + 3 * s[0][1] + 3 * s[1][1] + next[1]) / 8]
+      : [(px + next[0]) / 2, (py + next[1]) / 2];
+    out.push({ kind: "mid", index: i + 1, at: [e.x + mid[0], e.y + mid[1]] });
+  });
+  return out;
+}
+
+export function pointHandleAt(e: LinearElement, x: number, y: number, tol: number): PointHandle | null {
+  // Points win over midpoints when both are in reach (short segments).
+  const hits = pointHandles(e).filter((h) => Math.hypot(x - h.at[0], y - h.at[1]) <= tol);
+  return hits.find((h) => h.kind === "point") ?? hits[0] ?? null;
+}
+
+/** A line or arrow through world points `pts`, normalised as Excalidraw stores it (first point at 0,0). */
+export function throughPoints(e: LinearElement, pts: readonly Point[]): LinearElement {
+  const [fx, fy] = pts[0] ?? [e.x, e.y];
+  const points = pts.map(([x, y]): Point => [x - fx, y - fy]);
+  return { ...e, x: fx, y: fy, points, ...pointsSize(points) };
+}
+
+export const worldPoints = (e: LinearElement): Point[] => e.points.map(([px, py]): Point => [e.x + px, e.y + py]);

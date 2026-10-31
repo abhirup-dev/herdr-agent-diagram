@@ -175,6 +175,45 @@ describe("editor", () => {
     expect(op.op === "create" && op.element).toMatchObject({ start: { id: "a" }, end: { id: "b" } });
   });
 
+  test("dragging an arrow's midpoint adds a bend point; dragging the start point re-normalises", () => {
+    const arrow = dragOut(newElement("arrow", 0, 0, DEFAULT_STYLE, "arr", 1), 0, 0, 200, 0, false);
+    const { ed, ops } = setup([arrow]);
+    ed.down(100, 0, none, 1, 2); // select it
+    ed.up(100, 0, none);
+    expect(ed.singleLinear()?.id).toBe("arr");
+    ed.down(100, 0, none, 1, 2); // grab the midpoint handle
+    ed.up(100, -60, none, 2);
+    const [[bend]] = ops() as [[Op]];
+    expect(bend).toEqual({
+      op: "update",
+      id: "arr",
+      fields: {
+        x: 0,
+        y: 0,
+        points: [
+          [0, 0],
+          [100, -60],
+          [200, 0],
+        ],
+        width: 200,
+        height: 60,
+        roundness: { type: 2 },
+      },
+    });
+    ed.down(0, 0, none, 1, 2); // grab the start point
+    ed.up(-50, 20, none, 2);
+    const [[move]] = ops() as [[Op]];
+    expect(move.op === "update" && move.fields).toMatchObject({
+      x: -50,
+      y: 20,
+      points: [
+        [0, 0],
+        [150, -80],
+        [250, -20],
+      ],
+    });
+  });
+
   test("tool shortcuts switch tools, and keys are ignored while editing text", () => {
     const { ed } = setup([]);
     expect(ed.key("r")).toBe(true);

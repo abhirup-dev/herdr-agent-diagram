@@ -5,6 +5,7 @@
 // result to the native Herdr canvas mod over its own WebSocket. It also answers the server's screenshot
 // requests with the SDK's headless renderer, so the excalidraw skill needs no browser.
 //   bun src/sidecar/main.ts        env: EXPRESS_SERVER_URL (default http://127.0.0.1:3000), CANVAS_SIDECAR_PORT
+import { LinearElementEditor } from "@excalidraw/element";
 import type { ServerWebSocket } from "bun";
 import { prepareScene } from "mcp-excalidraw-server/dist/core/render/excalidraw-node/index.js";
 import { renderScene } from "mcp-excalidraw-server/dist/core/render/index.js";
@@ -32,6 +33,21 @@ const broadcast = (m: ServerMessage) => {
 const snapshot = (): ServerMessage => ({ type: "scene", rev, elements: [...prepared.values()] });
 const status = (): ServerMessage => ({ type: "status", upstream: upstreamUp ? "connected" : "disconnected" });
 
+const labelPosition = LinearElementEditor.getBoundTextElementPosition as unknown as (
+  arrow: CanvasElement,
+  text: CanvasElement,
+  map: Map<string, CanvasElement>,
+) => { x: number; y: number };
+
+/** Arrow labels where Excalidraw puts them (middle point or curve midpoint); the conversion assumes straight arrows. */
+function placeArrowLabels(els: CanvasElement[]): CanvasElement[] {
+  const map = new Map(els.map((e) => [e.id, e]));
+  return els.map((e) => {
+    const arrow = e.type === "text" && e.containerId ? map.get(e.containerId) : undefined;
+    return arrow?.type === "arrow" || arrow?.type === "line" ? { ...e, ...labelPosition(arrow, e, map) } : e;
+  });
+}
+
 // --- conversion: raw -> prepared, broadcast the difference. Serialised: one conversion at a time, latest wins.
 let converting = false;
 let dirty = false;
@@ -44,9 +60,11 @@ async function reconvert(): Promise<void> {
       dirty = false;
       const t0 = performance.now();
       // Rough paths are generated here: in the mod's slow JS runtime one rectangle takes seconds.
-      const next = (await prepareScene(withSeeds(raw.values())))
-        .filter((e): e is CanvasElement => isCanvasElement(e as { type: string; isDeleted?: boolean }))
-        .map((e): CanvasElement => (e.type === "text" ? e : { ...e, paints: elementPaints(e) }));
+      const next = placeArrowLabels(
+        (await prepareScene(withSeeds(raw.values())))
+          .filter((e): e is CanvasElement => isCanvasElement(e as { type: string; isDeleted?: boolean }))
+          .map((e): CanvasElement => (e.type === "text" ? e : { ...e, paints: elementPaints(e) })),
+      );
       const patch = diff(prepared, next);
       prepared = new Map(next.map((e) => [e.id, e]));
       if (patch.upsert.length || patch.remove.length) {
@@ -108,6 +126,7 @@ const rest: Rest = {
   create: (el) => call("POST", "/api/elements", el),
   update: (id, fields) => call("PUT", `/api/elements/${encodeURIComponent(id)}`, fields),
   remove: async (id) => void (await call("DELETE", `/api/elements/${encodeURIComponent(id)}`)),
+  get: (id) => call("GET", `/api/elements/${encodeURIComponent(id)}`).catch(() => null),
 };
 const writer = new Writer(
   rest,

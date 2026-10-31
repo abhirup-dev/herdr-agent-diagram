@@ -24,6 +24,7 @@ function fake(initial: RawElement[]) {
       store.delete(id);
       calls.push(`remove ${id}`);
     },
+    get: async (id) => store.get(id) ?? null,
   };
   const prepared = new Map<string, Record<string, unknown>>([["box-label", { containerId: "box", text: "hi" }]]);
   const writer = new Writer(rest, { raw: () => raw, prepared: (id) => prepared.get(id) });

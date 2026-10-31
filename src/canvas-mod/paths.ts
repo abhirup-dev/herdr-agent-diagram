@@ -17,11 +17,15 @@ export interface BuiltPaint {
 }
 
 export interface BuiltElement {
-  /** World-space top-left of the painted area (element origin plus the paths' local minimum). */
-  readonly worldX: number;
-  readonly worldY: number;
+  /** Offset of the painted area's top-left from the element origin, world units (the paths' local minimum). */
+  readonly mx: number;
+  readonly my: number;
   readonly paints: readonly BuiltPaint[];
+  /** What it was built from and at: reuse it only while all four match. */
+  readonly src: readonly Paint[];
   readonly scale: number;
+  readonly sx: number;
+  readonly sy: number;
 }
 
 /** Rotation about the element centre plus the shift and scale into device px. Plain fields, read inline. */
@@ -34,6 +38,9 @@ interface Xform {
   ox: number;
   oy: number;
   readonly scale: number;
+  /** Stretch applied to local coordinates before rotation (paths generated at another size). */
+  readonly sx: number;
+  readonly sy: number;
 }
 // A local point (x, y) maps to ((ox + (x-cx)*cos - (y-cy)*sin) * scale, (oy + (x-cx)*sin + (y-cy)*cos) * scale).
 
@@ -45,8 +52,8 @@ function localMin(paints: readonly Paint[], t: Xform): { mx: number; my: number 
     for (const op of p.ops) {
       const d = op.data;
       for (let i = 0; i + 1 < d.length; i += 2) {
-        const x = (d[i] ?? 0) - t.cx;
-        const y = (d[i + 1] ?? 0) - t.cy;
+        const x = (d[i] ?? 0) * t.sx - t.cx;
+        const y = (d[i + 1] ?? 0) * t.sy - t.cy;
         const rx = t.cx + x * t.cos - y * t.sin;
         const ry = t.cy + x * t.sin + y * t.cos;
         if (rx < mx) mx = rx;
@@ -57,16 +64,16 @@ function localMin(paints: readonly Paint[], t: Xform): { mx: number; my: number 
 }
 
 function trace(b: PathBuilder, p: Paint, t: Xform): void {
-  const { cos, sin, cx, cy, ox, oy, scale } = t;
+  const { cos, sin, cx, cy, ox, oy, scale, sx, sy } = t;
   for (const op of p.ops) {
     const d = op.data;
     if (op.op === "bcurveTo") {
-      const x0 = (d[0] ?? 0) - cx;
-      const y0 = (d[1] ?? 0) - cy;
-      const x1 = (d[2] ?? 0) - cx;
-      const y1 = (d[3] ?? 0) - cy;
-      const x2 = (d[4] ?? 0) - cx;
-      const y2 = (d[5] ?? 0) - cy;
+      const x0 = (d[0] ?? 0) * sx - cx;
+      const y0 = (d[1] ?? 0) * sy - cy;
+      const x1 = (d[2] ?? 0) * sx - cx;
+      const y1 = (d[3] ?? 0) * sy - cy;
+      const x2 = (d[4] ?? 0) * sx - cx;
+      const y2 = (d[5] ?? 0) * sy - cy;
       b.cubic_bezier_to(
         (ox + x2 * cos - y2 * sin) * scale,
         (oy + x2 * sin + y2 * cos) * scale,
@@ -77,8 +84,8 @@ function trace(b: PathBuilder, p: Paint, t: Xform): void {
       );
       continue;
     }
-    const x = (d[0] ?? 0) - cx;
-    const y = (d[1] ?? 0) - cy;
+    const x = (d[0] ?? 0) * sx - cx;
+    const y = (d[1] ?? 0) * sy - cy;
     const px = (ox + x * cos - y * sin) * scale;
     const py = (oy + x * sin + y * cos) * scale;
     if (op.op !== "move") b.line_to(px, py);
@@ -95,7 +102,7 @@ function trace(b: PathBuilder, p: Paint, t: Xform): void {
  * about the element centre as Excalidraw does, then shifted so none is negative (an arrow pointing left has
  * negative points); the shift is reported in world units for positioning.
  */
-export function buildElement(e: CanvasElement, paints: readonly Paint[], scale: number): BuiltElement {
+export function buildElement(e: CanvasElement, paints: readonly Paint[], scale: number, sx = 1, sy = 1): BuiltElement {
   const angle = e.angle || 0;
   const t: Xform = {
     cos: Math.cos(angle),
@@ -105,6 +112,8 @@ export function buildElement(e: CanvasElement, paints: readonly Paint[], scale: 
     ox: 0,
     oy: 0,
     scale,
+    sx,
+    sy,
   };
   const { mx, my } = localMin(paints, t);
   t.ox = t.cx - mx;
@@ -117,5 +126,5 @@ export function buildElement(e: CanvasElement, paints: readonly Paint[], scale: 
     trace(b, p, t);
     built.push({ path: b.build(), color: hex(p.color) });
   }
-  return { worldX: e.x + mx, worldY: e.y + my, paints: built, scale };
+  return { mx, my, paints: built, src: paints, scale, sx, sy };
 }

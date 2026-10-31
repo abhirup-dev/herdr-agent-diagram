@@ -17,15 +17,17 @@ import {
   measureText,
   newElement,
   newId,
+  pointHandleAt,
   resizeBounds,
-  type ShapeTool,
   type Style,
   scaleFields,
   type Tool,
+  throughPoints,
   unionBounds,
+  worldPoints,
 } from "./edit.ts";
 import type { ElementFields, Op } from "./protocol.ts";
-import type { CanvasElement, TextElement } from "./types.ts";
+import type { CanvasElement, LinearElement, TextElement } from "./types.ts";
 
 export interface Mods {
   readonly shift: boolean;
@@ -43,7 +45,9 @@ type Gesture =
     }
   | { readonly kind: "create"; readonly x0: number; readonly y0: number; readonly id: string }
   | { readonly kind: "marquee"; readonly x0: number; readonly y0: number; x1: number; y1: number }
-  | { readonly kind: "erase" };
+  | { readonly kind: "erase" }
+  /** Dragging one point of a line or arrow (a midpoint drag inserts the point first). */
+  | { readonly kind: "point"; readonly id: string; readonly index: number };
 
 /** An open text editor: a new text, an existing one, or the label inside a container. */
 export interface TextEdit {
@@ -131,6 +135,13 @@ export class Editor {
     return out.filter((e) => !e.isDeleted);
   }
 
+  /** The selected line or arrow when it is the whole selection: it gets point handles, not a resize box. */
+  singleLinear(els: readonly CanvasElement[] = this.elements()): LinearElement | null {
+    if (this.selected.size !== 1) return null;
+    const e = els.find((x) => this.selected.has(x.id));
+    return e && (e.type === "arrow" || e.type === "line") ? e : null;
+  }
+
   /** Union bounds of the selection, or null. */
   selectionBounds(els: readonly CanvasElement[] = this.elements()): Bounds | null {
     return unionBounds(els.filter((e) => this.selected.has(e.id)).map(elementBounds));
@@ -139,6 +150,11 @@ export class Editor {
   marquee(): Bounds | null {
     const g = this.gesture;
     return g?.kind === "marquee" ? boxFrom(g.x0, g.y0, g.x1, g.y1) : null;
+  }
+
+  /** The line whose points are being dragged: its shape changes, so stretched rough paths would be wrong. */
+  get pointDrag(): string | null {
+    return this.gesture?.kind === "point" ? this.gesture.id : null;
   }
 
   get busy(): boolean {
@@ -168,100 +184,165 @@ export class Editor {
     if (this.tool === "eraser") {
       this.gesture = { kind: "erase" };
       this.erase(els, x, y, tol);
-      return;
-    }
-    if (this.tool === "text" || (this.tool === "selection" && clicks >= 2)) {
-      this.openText(els, x, y, tol);
-      return;
-    }
-    if (isShapeTool(this.tool)) {
-      const draft = newElement(this.tool as ShapeTool, x, y, this.style);
+    } else if (this.tool === "text" || (this.tool === "selection" && clicks >= 2)) this.openText(els, x, y, tol);
+    else if (isShapeTool(this.tool)) {
+      const draft = newElement(this.tool, x, y, this.style);
       this.drafts.set(draft.id, draft);
       this.selected.clear();
       this.gesture = { kind: "create", x0: x, y0: y, id: draft.id };
-      return;
+    } else if (this.tool === "selection" && !this.grabHandle(els, x, y, tol)) this.select(els, x, y, m, tol);
+  }
+
+  /** Starts a point drag or a resize when the press is on a handle of the selection. */
+  private grabHandle(els: readonly CanvasElement[], x: number, y: number, tol: number): boolean {
+    const lin = this.singleLinear(els);
+    if (lin) {
+      const ph = pointHandleAt(lin, x, y, tol * 1.5);
+      if (!ph) return false;
+      const pts = worldPoints(lin);
+      if (ph.kind === "mid") pts.splice(ph.index, 0, [x, y]);
+      // Bending makes the line round (Excalidraw keeps sharp lines sharp; we want smooth bends by default).
+      const roundness = ph.kind === "mid" ? (lin.roundness ?? { type: 2 }) : lin.roundness;
+      this.drafts.set(lin.id, throughPoints({ ...lin, roundness }, pts));
+      this.gesture = { kind: "point", id: lin.id, index: ph.index };
+      return true;
     }
-    if (this.tool !== "selection") return;
-    const sel = this.selectionBounds(els);
-    const handle = sel && this.selected.size ? handleAt(sel, x, y, tol * 1.5) : null;
-    if (sel && handle) {
-      const originals = els.filter((e) => this.selected.has(e.id));
-      this.gesture = { kind: "resize", handle, from: sel, originals };
-      return;
-    }
+    const sel = this.selected.size ? this.selectionBounds(els) : null;
+    const handle = sel ? handleAt(sel, x, y, tol * 1.5) : null;
+    if (!sel || !handle) return false;
+    this.gesture = { kind: "resize", handle, from: sel, originals: els.filter((e) => this.selected.has(e.id)) };
+    return true;
+  }
+
+  /** Click selection (shift toggles) and the start of a move, or a marquee on empty canvas. */
+  private select(els: readonly CanvasElement[], x: number, y: number, m: Mods, tol: number): void {
     const hit = hitTest(els, x, y, tol);
-    if (hit) {
-      if (m.shift) {
-        if (this.selected.has(hit.id)) this.selected.delete(hit.id);
-        else this.selected.add(hit.id);
-      } else if (!this.selected.has(hit.id)) {
-        this.selected.clear();
-        this.selected.add(hit.id);
-      }
-      const ids = new Set(this.selected);
-      const originals = [...els.filter((e) => ids.has(e.id)), ...boundTexts(els, ids)];
-      this.gesture = { kind: "move", x0: x, y0: y, originals };
+    if (!hit) {
+      if (!m.shift) this.selected.clear();
+      this.gesture = { kind: "marquee", x0: x, y0: y, x1: x, y1: y };
       return;
     }
-    if (!m.shift) this.selected.clear();
-    this.gesture = { kind: "marquee", x0: x, y0: y, x1: x, y1: y };
+    if (m.shift && this.selected.has(hit.id)) this.selected.delete(hit.id);
+    else if (m.shift) this.selected.add(hit.id);
+    else if (!this.selected.has(hit.id)) {
+      this.selected.clear();
+      this.selected.add(hit.id);
+    }
+    const ids = new Set(this.selected);
+    const originals = [...els.filter((e) => ids.has(e.id)), ...boundTexts(els, ids)];
+    this.gesture = { kind: "move", x0: x, y0: y, originals };
   }
 
   move(x: number, y: number, m: Mods, tol: number): void {
     const g = this.gesture;
     if (!g) return;
-    if (g.kind === "erase") this.erase(this.elements(), x, y, tol);
-    else if (g.kind === "marquee") {
-      g.x1 = x;
-      g.y1 = y;
-    } else if (g.kind === "move") {
-      const [dx, dy] = [x - g.x0, y - g.y0];
-      for (const e of g.originals) this.drafts.set(e.id, { ...e, x: e.x + dx, y: e.y + dy });
-    } else if (g.kind === "resize") {
-      const to = resizeBounds(g.from, g.handle, x, y, m.shift);
-      for (const e of g.originals) {
-        const d = { ...e, ...scaleFields(e, g.from, to) } as CanvasElement;
-        this.drafts.set(e.id, d);
-        if (g.originals.length <= 4) this.previews.set(e.id, d);
-      }
-    } else {
-      const d = this.drafts.get(g.id);
-      if (!d) return;
-      const next = dragOut(d, g.x0, g.y0, x, y, m.shift);
-      this.drafts.set(g.id, next);
-      if (next.width >= 1 || next.height >= 1) this.previews.set(g.id, next);
+    switch (g.kind) {
+      case "erase":
+        this.erase(this.elements(), x, y, tol);
+        return;
+      case "marquee":
+        g.x1 = x;
+        g.y1 = y;
+        return;
+      case "move":
+        for (const e of g.originals) this.drafts.set(e.id, { ...e, x: e.x + x - g.x0, y: e.y + y - g.y0 });
+        return;
+      case "resize":
+        this.resizeTo(g, x, y, m.shift);
+        return;
+      case "point":
+        this.movePoint(g.id, g.index, x, y);
+        return;
+      case "create":
+        this.dragCreate(g, x, y, m.shift);
+        return;
     }
   }
 
-  up(_x: number, _y: number, _m: Mods): void {
+  private resizeTo(g: Extract<Gesture, { kind: "resize" }>, x: number, y: number, keepAspect: boolean): void {
+    const to = resizeBounds(g.from, g.handle, x, y, keepAspect);
+    for (const e of g.originals) {
+      const d = { ...e, ...scaleFields(e, g.from, to) } as CanvasElement;
+      this.drafts.set(e.id, d);
+      if (g.originals.length <= 4) this.previews.set(e.id, d);
+    }
+  }
+
+  private movePoint(id: string, index: number, x: number, y: number): void {
+    const d = this.drafts.get(id);
+    if (!d || (d.type !== "arrow" && d.type !== "line")) return;
+    const pts = worldPoints(d);
+    pts[index] = [x, y];
+    const next = throughPoints(d, pts);
+    this.drafts.set(id, next);
+    this.previews.set(id, next);
+  }
+
+  private dragCreate(g: Extract<Gesture, { kind: "create" }>, x: number, y: number, shift: boolean): void {
+    const d = this.drafts.get(g.id);
+    if (!d) return;
+    const next = dragOut(d, g.x0, g.y0, x, y, shift);
+    this.drafts.set(g.id, next);
+    if (next.width >= 1 || next.height >= 1) this.previews.set(g.id, next);
+  }
+
+  /** The release at (x, y). It counts as a last move: pointer moves can be coalesced away before it. */
+  up(x: number, y: number, m: Mods, tol = 0): void {
+    if (this.gesture) this.move(x, y, m, tol);
+    this.finish();
+  }
+
+  private finish(): void {
     const g = this.gesture;
     this.gesture = null;
     if (!g) return;
-    if (g.kind === "erase") {
-      if (this.erasing.size) this.remove([...this.erasing]);
-      this.erasing.clear();
-    } else if (g.kind === "marquee") {
-      for (const e of inBox(this.elements(), boxFrom(g.x0, g.y0, g.x1, g.y1))) this.selected.add(e.id);
-    } else if (g.kind === "move" || g.kind === "resize") {
-      const moved = g.originals.filter((o) => {
-        const d = this.drafts.get(o.id);
-        return d && (d.x !== o.x || d.y !== o.y || d.width !== o.width || d.height !== o.height);
-      });
-      const keys = g.kind === "move" ? ["x", "y"] : ["x", "y", "width", "height"];
-      const ops = moved.map((o): Op => {
-        const d = this.drafts.get(o.id) as CanvasElement;
-        const fields = g.kind === "move" ? { x: d.x, y: d.y } : scaleFieldsOf(d);
-        return { op: "update", id: o.id, fields };
-      });
-      for (const o of moved) this.settle(this.drafts.get(o.id) as CanvasElement, keys);
-      for (const o of g.originals) this.drafts.delete(o.id);
-      if (ops.length) this.outbox.push(ops);
-    } else this.finishCreate(g.id);
+    switch (g.kind) {
+      case "erase":
+        if (this.erasing.size) this.remove([...this.erasing]);
+        this.erasing.clear();
+        return;
+      case "marquee":
+        for (const e of inBox(this.elements(), boxFrom(g.x0, g.y0, g.x1, g.y1))) this.selected.add(e.id);
+        return;
+      case "point":
+        this.finishPoint(g.id);
+        return;
+      case "move":
+      case "resize":
+        this.finishTransform(g);
+        return;
+      case "create":
+        this.finishCreate(g.id);
+        return;
+    }
+  }
+
+  private finishPoint(id: string): void {
+    const d = this.drafts.get(id);
+    this.drafts.delete(id);
+    if (!d || !("points" in d)) return;
+    const { x, y, points, width, height, roundness } = d;
+    this.outbox.push([{ op: "update", id, fields: { x, y, points, width, height, roundness } }]);
+    this.settle(d, ["x", "y"]);
+  }
+
+  private finishTransform(g: Extract<Gesture, { kind: "move" | "resize" }>): void {
+    const moved = g.originals.flatMap((o) => {
+      const d = this.drafts.get(o.id);
+      return d && (d.x !== o.x || d.y !== o.y || d.width !== o.width || d.height !== o.height) ? [d] : [];
+    });
+    const keys = g.kind === "move" ? ["x", "y"] : ["x", "y", "width", "height"];
+    const ops = moved.map(
+      (d): Op => ({ op: "update", id: d.id, fields: g.kind === "move" ? { x: d.x, y: d.y } : scaleFieldsOf(d) }),
+    );
+    for (const d of moved) this.settle(d, keys);
+    for (const o of g.originals) this.drafts.delete(o.id);
+    if (ops.length) this.outbox.push(ops);
   }
 
   /** The pointer left the canvas mid-gesture: finish it where it is rather than leave it stuck. */
   leave(): void {
-    if (this.gesture) this.up(0, 0, { shift: false, alt: false, cmd: false });
+    this.finish();
   }
 
   private finishCreate(id: string): void {
