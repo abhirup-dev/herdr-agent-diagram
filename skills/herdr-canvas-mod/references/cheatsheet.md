@@ -10,14 +10,15 @@ Adapted from mcp-excalidraw-server's excalidraw-skill (MIT). Commands run as `he
 
 ## CLI Reference
 
-`herdr-draw canvas <command>` (or `excalidraw-canvas <command>` after `npm i -g`).
-JSON results on stdout — except `describe` (plain text) and raw-content output when `--out` is omitted (`export` scene JSON, `screenshot --format svg`). Diagnostics on stderr. Exit codes: 0 ok, 1 error, 2 usage, 3 canvas unreachable,. Explicit `start` overrides `EXCALIDRAW_NO_AUTOSTART=1`.
+`herdr-draw canvas <command>`; `herdr-draw canvas help` lists every command with its usage, `herdr-draw canvas help <command>` (or `<command> --help`) shows one.
+JSON results on stdout — except `describe` (plain text) and raw-content output when `--out` is omitted (`export` scene JSON, `screenshot --format svg`). Diagnostics on stderr. Exit codes: 0 ok, 1 error, 2 usage, 3 canvas unreachable.
 
 ### Server
 
 | Command | Description |
 |---------|-------------|
-| `stop` | Stop the canvas server (identity-checked via `/health` — never signals foreign services) |
+| `start` | Start the sidecar if it is down (every board command does this anyway) |
+| `stop` | No-op: the sidecar is shared by every board and keeps running |
 | `status` | Health of the sidecar and its boards (`herdr-draw canvas status`) |
 
 ### Elements
@@ -37,9 +38,8 @@ JSON results on stdout — except `describe` (plain text) and raw-content output
 |---------|-------------|
 | `describe` | AI-readable scene summary (ids, positions, labels, connections) — plain text |
 | `screenshot` | PNG/SVG capture; `--out f.png`, `--format png\|svg`, `--no-background`; PNG without `--out` → temp file path in JSON, SVG without `--out` → raw SVG |
-| `export [--out f.excalidraw] [--format json\|obsidian]` | Scene as .excalidraw JSON (stdout without `--out`); a `.md` out path writes Obsidian's .excalidraw.md format |
-| `import [file\|-] [--replace]` | Import .excalidraw JSON or Obsidian .excalidraw.md (merge by default) |
-| `share` | Encrypted upload → shareable excalidraw.com URL |
+| `export [--out f.excalidraw] [--format json]` | Scene as .excalidraw JSON (stdout without `--out`) |
+| `import [file\|-] [--replace]` | Import .excalidraw JSON (merge by default) |
 | `clear --yes` | Wipe the canvas |
 | `snapshot save\|list\|restore [name]` | Named canvas snapshots |
 
@@ -57,8 +57,7 @@ JSON results on stdout — except `describe` (plain text) and raw-content output
 
 | Command | Description |
 |---------|-------------|
-| `install-skill --dir <skills-root>` | Install this skill into an agent-chosen project/global skills root (replaces any existing copy) |
-| `help [command]`, `--version` | Usage and version |
+| `help [command]`, `<command> --help` | Usage (`herdr-draw --version` for the version) |
 
 ## Design Guide (quick version)
 

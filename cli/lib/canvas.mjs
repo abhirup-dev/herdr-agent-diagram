@@ -6,7 +6,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { cac } from "cac";
 import { logDir, logger } from "../../src/log/log.mjs";
+import { parse } from "./args.mjs";
 
 const log = logger("cli");
 const REPO = path.resolve(path.dirname(fs.realpathSync(fileURLToPath(import.meta.url))), "../..");
@@ -14,13 +16,14 @@ const SIDECAR_SERVICE = "herdr-draw-sidecar";
 
 export const HELP = `herdr-draw canvas: the live Excalidraw canvas, as a native pane beside this terminal.
 
-usage: herdr-draw canvas <command>
+usage: herdr-draw canvas <command> [options]
 
-  open        show the canvas beside this terminal (starts what it needs); each run adds a pane
-  start       only start the sidecar
-  status      JSON health of the sidecar and its boards
-  <other>     a command on this terminal's board: add, apply, update, delete, get, query, describe,
-              screenshot, export, import, snapshot, arrange, clear
+  open            show the canvas beside this terminal (starts what it needs); each run adds a pane
+  start           only start the sidecar
+  status          JSON health of the sidecar and its boards
+  help [command]  this text, or one board command's usage (also -h, --help after any command)
+  <other>         a board command (below) on this terminal's board; starts the sidecar first.
+                  open, start and status above take precedence over the board's own.
 `;
 
 const port = (env) => Number(env.CANVAS_SIDECAR_PORT ?? 3077);
@@ -191,11 +194,34 @@ export async function open(env) {
   console.log(`canvas open${pane ? ` beside ${terminal}` : " beside the focused pane"}: ${urls(env).board}`);
 }
 
+/** The board CLI's command list with usages, or one command's usage (src/board/cli.ts owns them). */
+export function boardHelp(env, cmd) {
+  const r = spawnSync(bunBin(env), [path.join(REPO, "src/board/cli.ts"), "help", ...(cmd ? [cmd] : [])], {
+    encoding: "utf8",
+    env,
+  });
+  return r.stdout || die(`board help failed: ${r.error?.message ?? r.stderr}`);
+}
+
+/** The canvas group's own commands (see args.mjs); everything else is a board command, passed on untouched. */
+export function program() {
+  const cli = cac("herdr-draw canvas");
+  cli.option("-h, --help", "help");
+  for (const c of ["open", "start", "status", "help [command]"]) cli.command(c);
+  return cli;
+}
+
 export async function canvas(argv, env) {
-  const [cmd, ...rest] = argv;
-  if (cmd === undefined || cmd === "help" || cmd === "--help") return process.stdout.write(HELP);
+  const { cmd, args, options } = parse(program(), argv);
+  if (!cmd && args.length && !options.help) {
+    process.exitCode = await boardCli(argv, env);
+    return;
+  }
+  if (!cmd || cmd === "help" || options.help) {
+    const board = args[0] && !["open", "start", "status"].includes(args[0]);
+    return process.stdout.write(board ? boardHelp(env, args[0]) : `${HELP}\n${boardHelp(env)}`);
+  }
   if (cmd === "open") return open(env).catch((e) => die(e.message));
   if (cmd === "start") return ensureBackend(env).catch((e) => die(e.message));
   if (cmd === "status") return console.log(JSON.stringify(await status(env), null, 2));
-  process.exitCode = await boardCli([cmd, ...rest], env);
 }

@@ -74,6 +74,10 @@ warning when the fitted text would be under 70% size.
 
 ## CLI
 
+`herdr-draw help` prints everything below in full: every command, flag and alias, the board commands' usages and the
+environment variables. Every group and command also takes `help`, `-h` or `--help` (`herdr-draw canvas help query`).
+Usage errors (unknown command, option or argument) exit 2.
+
 ```
 herdr-draw mermaid add [--tab NAME] [--title T] [file]   bare mermaid or markdown with a ```mermaid fence; stdin if no file
 herdr-draw mermaid replace <id> [--title T] [file]
@@ -83,10 +87,24 @@ herdr-draw mermaid ls [--json]
 herdr-draw mermaid clear
   --terminal <addr>   override $HC_TERMINAL_ID (testing)
 herdr-draw canvas open | start | status                  live Excalidraw canvas beside this terminal; status prints JSON health
-herdr-draw canvas <board command>                        passed to the board CLI (mcp-excalidraw-server), e.g. describe
+herdr-draw canvas <board command>                        add, apply, update, delete, get, query, describe, screenshot,
+                                                         export, import, snapshot, arrange, clear (herdr-draw canvas help)
 herdr-draw open                                          the view for this terminal (for now: canvas open)
-herdr-draw help
+herdr-draw install [-y|--yes] [--agents claude,pi,codex|none] [--machines a,b | --no-machines] [--headless]
+herdr-draw uninstall [-y] [--machines a,b]
+herdr-draw doctor                                        exits 1 if something is missing
+herdr-draw logs [component] [-n N] [--machine NAME] [--path]
+herdr-draw -V | --version
+herdr-draw help [group [command]]
 ```
+
+Environment: `HC_TERMINAL_ID` (set by herdr-core; picks your pins and board), `HERDR_APP_HOME` (default
+`~/.config/herdr-app`), `CANVAS_SIDECAR_PORT` (default 3077), `HERDR_DRAW_BUN` (the bun for the sidecar and board
+commands), `HERDR_DRAW_DEBUG=0` (no debug log lines), `HERDR_DRAW_LOGS` and `HERDR_DRAW_BOARDS` (default under
+`${XDG_STATE_HOME:-~/.local/state}/herdr-draw/`); for `install.sh`: `HERDR_DRAW_REPO`, `HERDR_DRAW_HOME`.
+
+The CLI parses with [cac](https://github.com/cacjs/cac), one program per group (`cli/lib/args.mjs`); the board
+commands keep their own table in `src/board/cli.ts`.
 
 ## Debugging
 
