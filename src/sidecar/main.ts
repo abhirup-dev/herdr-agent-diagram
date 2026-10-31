@@ -8,7 +8,7 @@ import { LinearElementEditor } from "@excalidraw/element";
 import type { ServerWebSocket } from "bun";
 import { handle, SIDECAR_SERVICE } from "../board/http.ts";
 import { prepare } from "../board/render.ts";
-import { parseClientMessage, type ServerMessage, SIDECAR_PORT } from "../canvas/protocol.ts";
+import { frame, parseClientFrame, type ServerMessage, SIDECAR_PORT } from "../canvas/protocol.ts";
 import { elementPaints } from "../canvas/shape.ts";
 import { type CanvasElement, isCanvasElement } from "../canvas/types.ts";
 import { Registry } from "./boards.ts";
@@ -43,25 +43,19 @@ const boards = new Registry(convert, log);
 type Socket = ServerWebSocket<unknown>;
 
 function onMessage(ws: Socket, data: string): void {
-  const m = parseClientMessage(data);
-  if (!m) return;
+  const f = parseClientFrame(data);
+  if (!f) return;
+  const { board, msg: m } = f;
   if (m.type !== "preview") {
-    boards.onClient(ws, m).catch((err: unknown) => log(`${m.board} ${m.type} failed: ${String(err)}`));
+    boards.onClient(ws, board, m).catch((err: unknown) => log(`${board} ${m.type} failed: ${String(err)}`));
     return;
   }
   // Rough paths for a draft element: no board state involved.
   const e = typeof m.element.seed === "number" ? m.element : { ...m.element, seed: stableSeed(m.element.id) };
   const paints = e.type === "text" ? [] : elementPaints(e);
-  const reply: ServerMessage = {
-    type: "preview",
-    board: m.board,
-    req: m.req,
-    id: e.id,
-    width: e.width,
-    height: e.height,
-    paints,
-  };
-  ws.send(JSON.stringify(reply));
+  ws.send(
+    frame<ServerMessage>(board, { type: "preview", req: m.req, id: e.id, width: e.width, height: e.height, paints }),
+  );
 }
 
 Bun.serve({

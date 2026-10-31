@@ -17,7 +17,8 @@ import { Editor, type Mods } from "../canvas/editor.ts";
 import {
   type ClientMessage,
   DEFAULT_BOARD,
-  parseServerMessage,
+  frame,
+  parseServerFrame,
   type ServerMessage,
   SIDECAR_PORT,
 } from "../canvas/protocol.ts";
@@ -121,7 +122,7 @@ export default class ExcalCanvas extends View {
       const ws = await WebSocket.connect(`ws://127.0.0.1:${this.port}`);
       connected = true;
       this.ws = ws;
-      this.send({ type: "subscribe", board: this.board });
+      this.send({ type: "subscribe" });
       this.link = "connected";
       cx.notify();
       for (;;) {
@@ -134,13 +135,14 @@ export default class ExcalCanvas extends View {
   }
 
   private send(m: ClientMessage): void {
-    this.ws?.write(JSON.stringify(m)).catch(() => {});
+    this.ws?.write(frame(this.board, m)).catch(() => {});
   }
 
   /** Applies one sidecar message; true when something on screen changed. */
   private receive(raw: string, cx: Context): boolean {
-    const m = parseServerMessage(raw);
-    if (!m || m.board !== this.board) return false;
+    const f = parseServerFrame(raw);
+    if (!f || f.board !== this.board) return false;
+    const m = f.msg;
     if (m.type === "status") this.link = m.upstream === "connected" ? "connected" : "server down";
     else if (m.type === "history") this.history = { canUndo: m.canUndo, canRedo: m.canRedo };
     else if (m.type === "preview") this.onPreview(m, cx);
@@ -172,7 +174,7 @@ export default class ExcalCanvas extends View {
 
   /** Sends the editor's queued ops, one preview request (one in flight), and syncs the text editor. */
   private flush(cx: Context): void {
-    for (const ops of this.ed.outbox.splice(0)) this.send({ type: "ops", board: this.board, ops });
+    for (const ops of this.ed.outbox.splice(0)) this.send({ type: "ops", ops });
     this.flushPreviews();
     this.syncTextEditor(cx);
     cx.notify();
@@ -187,7 +189,7 @@ export default class ExcalCanvas extends View {
     this.ed.previews.delete(id);
     const req = this.nextReq++;
     this.previewInFlight = { req, at: now };
-    this.send({ type: "preview", board: this.board, req, element });
+    this.send({ type: "preview", req, element });
   }
 
   // --- text editing ---------------------------------------------------------------------------------------
@@ -446,8 +448,8 @@ export default class ExcalCanvas extends View {
         canRedo: this.history.canRedo,
         onZoom: (f) => this.act(() => this.zoomBy(f)),
         onResetZoom: () => this.act(() => this.zoomBy(1 / this.camera.zoom)),
-        onUndo: () => this.act(() => this.send({ type: "undo", board: this.board })),
-        onRedo: () => this.act(() => this.send({ type: "redo", board: this.board })),
+        onUndo: () => this.act(() => this.send({ type: "undo" })),
+        onRedo: () => this.act(() => this.send({ type: "redo" })),
       }),
     );
     out.push(this.statusBar());
@@ -625,8 +627,8 @@ export default class ExcalCanvas extends View {
       return true;
     }
     if (keystroke === "space") this.spaceHeld = true;
-    else if (keystroke === "cmd-z") this.send({ type: "undo", board: this.board });
-    else if (keystroke === "cmd-shift-z") this.send({ type: "redo", board: this.board });
+    else if (keystroke === "cmd-z") this.send({ type: "undo" });
+    else if (keystroke === "cmd-shift-z") this.send({ type: "redo" });
     else if (key === "+" || key === "=") this.zoomBy(1.1);
     else if (key === "-") this.zoomBy(1 / 1.1);
     else if (key === "!") {

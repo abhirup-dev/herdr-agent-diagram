@@ -48,7 +48,7 @@ async function addBoard(id: string): Promise<void> {
   await post(`/b/${id}/api/export/image`, { format: "png" });
   const ws = new WebSocket(`ws://127.0.0.1:${port}/`);
   await new Promise((r) => ws.addEventListener("open", r, { once: true }));
-  ws.send(JSON.stringify({ type: "subscribe", board: id }));
+  ws.send(JSON.stringify({ kind: "board", board: id, msg: { type: "subscribe" } }));
   sockets.push(ws);
 }
 

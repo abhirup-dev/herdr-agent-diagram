@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { handle } from "../src/board/http.ts";
 import { Board } from "../src/board/store.ts";
-import { isLocalBoardId, parseClientMessage, parseServerMessage, splitBoard } from "../src/canvas/protocol.ts";
+import { frame, isLocalBoardId, parseClientFrame, parseServerFrame, splitBoard } from "../src/canvas/protocol.ts";
 import type { CanvasElement } from "../src/canvas/types.ts";
 import { Registry, type Viewer } from "../src/sidecar/boards.ts";
 
@@ -125,10 +125,16 @@ describe("board REST", () => {
   }, 30_000);
 });
 
-/** A fake mod socket that keeps what it receives. */
+/** A fake mod socket that keeps what it receives, each frame flattened to {board, ...msg}. */
 function viewer() {
   const got: Record<string, unknown>[] = [];
-  const v: Viewer = { send: (d) => void got.push(JSON.parse(d)) };
+  const v: Viewer = {
+    send: (d) => {
+      const f = parseServerFrame(d);
+      if (!f) throw new Error(`not a board frame: ${d}`);
+      got.push({ board: f.board, ...f.msg });
+    },
+  };
   return { v, got };
 }
 const settle = () => new Promise((r) => setTimeout(r, 5));
@@ -142,16 +148,16 @@ describe("sidecar boards", () => {
     boards.subscribe(two.v, "t2");
     expect(one.got.map((m) => m.type)).toEqual(["status", "scene", "history"]);
     const box = { id: "n", type: "rectangle", x: 0, y: 0, width: 10, height: 10 };
-    await boards.onClient(one.v, { type: "ops", board: "t1", ops: [{ op: "create", element: box }] });
+    await boards.onClient(one.v, "t1", { type: "ops", ops: [{ op: "create", element: box }] });
     await settle();
     expect(boards.board("t1").elements.has("n")).toBe(true);
     expect(boards.board("t2").elements.size).toBe(0);
     expect(one.got.some((m) => m.type === "patch" && m.board === "t1")).toBe(true);
     expect(two.got.every((m) => m.board === "t2")).toBe(true);
     expect(one.got.at(-1)).toMatchObject({ type: "history", board: "t1", canUndo: true });
-    await boards.onClient(two.v, { type: "undo", board: "t2" }); // nothing to undo there
+    await boards.onClient(two.v, "t2", { type: "undo" }); // nothing to undo there
     expect(boards.board("t1").elements.has("n")).toBe(true);
-    await boards.onClient(one.v, { type: "undo", board: "t1" });
+    await boards.onClient(one.v, "t1", { type: "undo" });
     expect(boards.board("t1").elements.has("n")).toBe(false);
   });
 
@@ -171,16 +177,38 @@ describe("sidecar boards", () => {
     boards.unsubscribe(mod.v);
     expect(boards.info("t1").viewers).toBe(0);
   });
+
+  test("one socket can follow several boards (a relay) and leave one", async () => {
+    const boards = registry();
+    const relay = viewer();
+    await boards.onClient(relay.v, "t1", { type: "subscribe" });
+    await boards.onClient(relay.v, "t2", { type: "subscribe" });
+    await boards.onClient(relay.v, "t1", { type: "unsubscribe" });
+    expect(boards.list().map((b) => [b.id, b.viewers])).toEqual([
+      ["t1", 0],
+      ["t2", 1],
+    ]);
+    await call(boards, "POST", "/b/t2/api/elements", { type: "ellipse", x: 0, y: 0 });
+    await call(boards, "POST", "/b/t1/api/elements", { type: "ellipse", x: 0, y: 0 });
+    await settle();
+    expect(relay.got.filter((m) => m.type === "patch").map((m) => m.board)).toEqual(["t2"]);
+  });
 });
 
 describe("protocol", () => {
-  test("messages need a board; subscribe parses; ids split by machine", () => {
-    expect(parseClientMessage('{"type":"subscribe","board":"t72"}')).toEqual({ type: "subscribe", board: "t72" });
-    expect(parseClientMessage('{"type":"undo"}')).toBeNull();
-    expect(parseClientMessage('{"type":"undo","board":""}')).toBeNull();
-    expect(parseClientMessage("null")).toBeNull();
-    expect(parseServerMessage('{"type":"history","board":"t1","canUndo":true,"canRedo":false}')).not.toBeNull();
-    expect(parseServerMessage('{"type":"history","canUndo":true,"canRedo":false}')).toBeNull();
+  test("frames carry a board and a known message; ids split by machine", () => {
+    expect(parseClientFrame(frame("t72", { type: "subscribe" }))).toEqual({
+      kind: "board",
+      board: "t72",
+      msg: { type: "subscribe" },
+    });
+    expect(parseClientFrame('{"kind":"board","board":"t1","msg":{"type":"unsubscribe"}}')).not.toBeNull();
+    expect(parseClientFrame('{"type":"undo","board":"t1"}')).toBeNull();
+    expect(parseClientFrame('{"kind":"board","board":"","msg":{"type":"undo"}}')).toBeNull();
+    expect(parseClientFrame('{"kind":"board","board":"t1","msg":{"type":"scene"}}')).toBeNull();
+    expect(parseClientFrame("null")).toBeNull();
+    expect(parseServerFrame(frame("t1", { type: "history", canUndo: true, canRedo: false }))).not.toBeNull();
+    expect(parseServerFrame('{"kind":"board","board":"t1","msg":null}')).toBeNull();
     expect(splitBoard("t72")).toEqual({ machine: null, local: "t72" });
     expect(splitBoard("vpsme/t1f")).toEqual({ machine: "vpsme", local: "t1f" });
     expect(isLocalBoardId("t72")).toBe(true);

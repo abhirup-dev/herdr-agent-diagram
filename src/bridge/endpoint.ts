@@ -61,7 +61,7 @@ export async function runEndpoint(o: EndpointOptions): Promise<void> {
       (m) => out.push(board, m),
       () => {
         if (boards.get(board) !== sock) return;
-        out.push(board, { type: "status", board, upstream: "disconnected", detail: "sidecar closed" });
+        out.push(board, { type: "status", upstream: "disconnected", detail: "sidecar closed" });
         clock.after(o.retryMs ?? 1000, () => boards.get(board) === sock && open(board));
       },
     );

@@ -190,10 +190,8 @@ export class Bridge implements Backend {
   }
 
   #emitStatus(detail: string): void {
-    for (const [board, set] of this.#listeners) {
-      const msg: BoardServerMessage = { type: "status", board, upstream: "disconnected", detail };
-      for (const l of set) l(msg);
-    }
+    const msg: BoardServerMessage = { type: "status", upstream: "disconnected", detail };
+    for (const set of this.#listeners.values()) for (const l of set) l(msg);
   }
 }
 

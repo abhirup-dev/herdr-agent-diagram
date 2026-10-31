@@ -76,7 +76,9 @@ function bunBin(env) {
 }
 
 // Every board command other than open/start/status: the board CLI (src/board/cli.ts) against this terminal's board.
-export function boardCli(argv, env) {
+// Like the upstream CLI it starts the sidecar first (except for `stop`, a no-op on the shared sidecar).
+export async function boardCli(argv, env) {
+  if (argv[0] !== "stop") await ensureBackend(env);
   const r = spawnSync(bunBin(env), [path.join(REPO, "src/board/cli.ts"), ...argv], {
     stdio: "inherit",
     env: { ...env, EXPRESS_SERVER_URL: urls(env).board },
@@ -147,5 +149,5 @@ export async function canvas(argv, env) {
   if (cmd === "open") return open(env).catch((e) => die(e.message));
   if (cmd === "start") return ensureBackend(env).catch((e) => die(e.message));
   if (cmd === "status") return console.log(JSON.stringify(await status(env), null, 2));
-  process.exitCode = boardCli([cmd, ...rest], env);
+  process.exitCode = await boardCli([cmd, ...rest], env);
 }

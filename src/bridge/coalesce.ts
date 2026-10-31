@@ -10,9 +10,7 @@ type PatchMsg = Extract<ServerMessage, { type: "patch" }>;
 
 interface Pending {
   /** A scene, or a patch whose `remove` runs before its `upsert` (as `applyMessage` does). */
-  elements?:
-    | SceneMsg
-    | { type: "patch"; board: string; rev: number; upsert: Map<string, CanvasElement>; remove: Set<string> };
+  elements?: SceneMsg | { type: "patch"; rev: number; upsert: Map<string, CanvasElement>; remove: Set<string> };
   pins?: Map<string, Pin>;
   /** Latest wins, by `status`, `history`, `preview:<id>`, `pin:<id>`. */
   last: Map<string, BoardServerMessage>;
@@ -22,7 +20,7 @@ function mergeIntoScene(scene: SceneMsg, p: PatchMsg): SceneMsg {
   const byId = new Map(scene.elements.map((e) => [e.id, e]));
   for (const id of p.remove) byId.delete(id);
   for (const e of p.upsert) byId.set(e.id, e);
-  return { type: "scene", board: scene.board, rev: p.rev, elements: [...byId.values()] };
+  return { type: "scene", rev: p.rev, elements: [...byId.values()] };
 }
 
 function mergeElements(pending: Pending, m: SceneMsg | PatchMsg): void {
@@ -30,7 +28,7 @@ function mergeElements(pending: Pending, m: SceneMsg | PatchMsg): void {
   if (m.type === "scene") pending.elements = m;
   else if (cur?.type === "scene") pending.elements = mergeIntoScene(cur, m);
   else {
-    const merged = cur ?? { type: "patch", board: m.board, rev: m.rev, upsert: new Map(), remove: new Set() };
+    const merged = cur ?? { type: "patch", rev: m.rev, upsert: new Map(), remove: new Set() };
     merged.rev = m.rev;
     for (const id of m.remove) {
       merged.upsert.delete(id);
@@ -56,8 +54,7 @@ function drainOne(p: Pending): BoardServerMessage[] {
   const out: BoardServerMessage[] = [];
   const e = p.elements;
   if (e?.type === "scene") out.push(e);
-  else if (e)
-    out.push({ type: "patch", board: e.board, rev: e.rev, upsert: [...e.upsert.values()], remove: [...e.remove] });
+  else if (e) out.push({ type: "patch", rev: e.rev, upsert: [...e.upsert.values()], remove: [...e.remove] });
   if (p.pins) out.push({ type: "pins", pins: [...p.pins.values()] });
   out.push(...p.last.values());
   return out;

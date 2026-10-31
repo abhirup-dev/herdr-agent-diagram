@@ -3,12 +3,12 @@
 // in memory for the life of the process. The SDK conversion is injected, so this is unit-tested without it.
 import type { BoardInfo, Boards } from "../board/http.ts";
 import { Board } from "../board/store.ts";
-import { type ClientMessage, DEFAULT_BOARD, type ServerMessage, splitBoard } from "../canvas/protocol.ts";
+import { type ClientMessage, frame, type ServerMessage, splitBoard } from "../canvas/protocol.ts";
 import type { CanvasElement } from "../canvas/types.ts";
 import { diff, type RawElement } from "./diff.ts";
 import { Writer } from "./writer.ts";
 
-/** A mod socket. */
+/** A mod socket (or a relay's); it receives board frames as JSON text. */
 export interface Viewer {
   send(data: string): void;
 }
@@ -44,22 +44,21 @@ class Live {
         raw: () => s.elements as Map<string, RawElement>,
         prepared: (id) => this.prepared.get(id) as Readonly<Record<string, unknown>> | undefined,
       },
-      (canUndo, canRedo) => this.broadcast({ type: "history", board: this.id, canUndo, canRedo }),
+      (canUndo, canRedo) => this.broadcast({ type: "history", canUndo, canRedo }),
     );
   }
 
   broadcast(m: ServerMessage): void {
-    const data = JSON.stringify(m);
+    const data = frame(this.id, m);
     for (const v of this.viewers) v.send(data);
   }
 
   /** What a newly subscribed mod needs: status, the whole scene, the history buttons. */
   hello(v: Viewer): void {
-    const b = this.id;
-    v.send(JSON.stringify({ type: "status", board: b, upstream: "connected" } satisfies ServerMessage));
-    v.send(JSON.stringify({ type: "scene", board: b, rev: this.rev, elements: [...this.prepared.values()] }));
-    const { canUndo, canRedo } = this.writer;
-    v.send(JSON.stringify({ type: "history", board: b, canUndo, canRedo } satisfies ServerMessage));
+    const send = (m: ServerMessage) => v.send(frame(this.id, m));
+    send({ type: "status", upstream: "connected" });
+    send({ type: "scene", rev: this.rev, elements: [...this.prepared.values()] });
+    send({ type: "history", canUndo: this.writer.canUndo, canRedo: this.writer.canRedo });
   }
 
   /** Converts raw -> prepared and broadcasts the difference. One conversion at a time; the latest state wins. */
@@ -81,7 +80,7 @@ class Live {
         this.prepared = new Map(next.map((e) => [e.id, e]));
         if (!patch.upsert.length && !patch.remove.length) continue;
         this.rev++;
-        this.broadcast({ type: "patch", board: this.id, rev: this.rev, upsert: patch.upsert, remove: patch.remove });
+        this.broadcast({ type: "patch", rev: this.rev, upsert: patch.upsert, remove: patch.remove });
         const ms = (performance.now() - t0).toFixed(1);
         this.log(`${this.id} rev ${this.rev}: ${patch.upsert.length} up, ${patch.remove.length} removed (${ms} ms)`);
       } catch (e) {
@@ -93,7 +92,7 @@ class Live {
 
 export class Registry implements Boards {
   private readonly live = new Map<string, Live>();
-  private readonly subscribed = new Map<Viewer, Live>();
+  private readonly subscribed = new Map<Viewer, Set<Live>>();
 
   constructor(
     private readonly convert: Convert,
@@ -123,37 +122,37 @@ export class Registry implements Boards {
     return [...this.live.keys()].map((id) => this.info(id));
   }
 
-  /** Points a mod socket at one board (it leaves the previous one). */
+  /** Sends a socket the board's full state, then its changes. A socket may follow several boards (a relay does). */
   subscribe(v: Viewer, id: string): void {
-    this.unsubscribe(v);
     const { machine } = splitBoard(id);
     if (machine !== null) {
-      // shortcut: boards on other machines need the relay (hd-jf3.7); until then the mod shows "server down".
-      const m: ServerMessage = {
-        type: "status",
-        board: id,
-        upstream: "disconnected",
-        detail: `no relay to ${machine}`,
-      };
-      v.send(JSON.stringify(m));
+      // shortcut: boards on other machines need the relay (src/bridge, not wired yet); the mod shows "server down".
+      const m: ServerMessage = { type: "status", upstream: "disconnected", detail: `no relay to ${machine}` };
+      v.send(frame(id, m));
       return;
     }
-    const b = this.get(id || DEFAULT_BOARD);
+    const b = this.get(id);
     b.viewers.add(v);
-    this.subscribed.set(v, b);
+    this.subscribed.set(v, (this.subscribed.get(v) ?? new Set()).add(b));
     b.hello(v);
   }
 
-  unsubscribe(v: Viewer): void {
-    this.subscribed.get(v)?.viewers.delete(v);
-    this.subscribed.delete(v);
+  /** Stops one board's frames to the socket, or all of them (the socket closed). */
+  unsubscribe(v: Viewer, id?: string): void {
+    for (const b of this.subscribed.get(v) ?? []) {
+      if (id !== undefined && b.id !== id) continue;
+      b.viewers.delete(v);
+      this.subscribed.get(v)?.delete(b);
+    }
+    if (!this.subscribed.get(v)?.size) this.subscribed.delete(v);
   }
 
   /** Edits from a mod. `preview` is answered by the caller (it needs the paint generator). */
-  onClient(v: Viewer, m: Exclude<ClientMessage, { type: "preview" }>): Promise<void> {
-    if (m.type === "subscribe") return Promise.resolve(this.subscribe(v, m.board));
-    if (splitBoard(m.board).machine !== null) return Promise.resolve();
-    const { writer } = this.get(m.board);
+  onClient(v: Viewer, board: string, m: Exclude<ClientMessage, { type: "preview" }>): Promise<void> {
+    if (m.type === "subscribe") return Promise.resolve(this.subscribe(v, board));
+    if (m.type === "unsubscribe") return Promise.resolve(this.unsubscribe(v, board));
+    if (splitBoard(board).machine !== null) return Promise.resolve();
+    const { writer } = this.get(board);
     if (m.type === "ops") return writer.apply(m.ops);
     return m.type === "undo" ? writer.undo() : writer.redo();
   }
