@@ -71,3 +71,88 @@ export function elementPaints(e: CanvasElement): Paint[] {
   }
   return paints;
 }
+
+interface Rect {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+type Pt = readonly [number, number];
+const pt = (d: readonly number[], i = 0): Pt => [d[i] ?? 0, d[i + 1] ?? 0];
+const lerp = (a: Pt, b: Pt, t: number): number[] => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+
+/** The part of segment a->b inside r, as [t0, t1] along it (Liang-Barsky), or null. */
+function inside(a: Pt, b: Pt, r: Rect): [number, number] | null {
+  const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
+  let [t0, t1] = [0, 1];
+  for (const [p, q] of [
+    [-dx, a[0] - r.x],
+    [dx, r.x + r.width - a[0]],
+    [-dy, a[1] - r.y],
+    [dy, r.y + r.height - a[1]],
+  ] as const) {
+    if (p === 0) {
+      if (q < 0) return null;
+      continue;
+    }
+    if (p < 0) t0 = Math.max(t0, q / p);
+    else t1 = Math.min(t1, q / p);
+    if (t0 > t1) return null;
+  }
+  return [t0, t1];
+}
+
+const CURVE_STEPS = 12;
+
+/** Bezier and line ops as polylines, one per subpath. */
+function polylines(ops: readonly PathOp[]): Pt[][] {
+  const lines: Pt[][] = [];
+  let cur: Pt[] = [];
+  for (const { op, data } of ops) {
+    if (op === "move") {
+      cur = [pt(data)];
+      lines.push(cur);
+    } else if (op === "lineTo") cur.push(pt(data));
+    else {
+      const [p0, c1, c2, p3] = [cur.at(-1) ?? [0, 0], pt(data), pt(data, 2), pt(data, 4)];
+      for (let i = 1; i <= CURVE_STEPS; i++) {
+        const t = i / CURVE_STEPS;
+        const w = [(1 - t) ** 3, 3 * (1 - t) ** 2 * t, 3 * (1 - t) * t * t, t ** 3] as const;
+        cur.push([
+          w[0] * p0[0] + w[1] * c1[0] + w[2] * c2[0] + w[3] * p3[0],
+          w[0] * p0[1] + w[1] * c1[1] + w[2] * c2[1] + w[3] * p3[1],
+        ]);
+      }
+    }
+  }
+  return lines;
+}
+
+/** Stroke ops with the part inside r removed: Excalidraw hides an arrow's line under its label. */
+export function cutOut(ops: readonly PathOp[], r: Rect): PathOp[] {
+  const out: PathOp[] = [];
+  for (const line of polylines(ops)) {
+    let pen = false;
+    line.slice(1).forEach((b, i) => {
+      const a = line[i] as Pt;
+      const hit = inside(a, b, r);
+      const keep = hit
+        ? (
+            [
+              [0, hit[0]],
+              [hit[1], 1],
+            ] as const
+          ).filter(([s, e]) => e - s > 1e-6)
+        : ([[0, 1]] as const);
+      pen &&= keep.length > 0;
+      for (const [s, e] of keep) {
+        if (!pen || s > 0) out.push({ op: "move", data: lerp(a, b, s) });
+        out.push({ op: "lineTo", data: lerp(a, b, e) });
+        pen = e === 1;
+      }
+    });
+  }
+  return out;
+}

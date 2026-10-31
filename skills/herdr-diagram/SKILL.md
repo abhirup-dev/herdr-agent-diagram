@@ -16,7 +16,11 @@ Clicking it opens a popup with tabs and pages. You pin with one CLI.
    chat as a `mermaid` code block.
 2. **Any Mermaid type works** (flowchart, sequence, state, class, ER, gantt,
    ...). Rendering is Pele, not Mermaid.js: same syntax, its own layout. No
-   terminal-era limits: labels can be long, LR is fine, cycles are fine.
+   terminal-era limits: labels can be long, cycles are fine.
+   **Keep it narrow.** The user most likely views it in a tall, narrow pane, so
+   prefer `TD`/`TB` over `LR`, wrap long rows into a second rank or a subgraph,
+   and aim for a diagram taller than it is wide (at most about 4-5 nodes side by
+   side). Go wide only when the user asks for it.
 3. **Group with tabs.** `--tab` names a tab; pins in one tab belong together
    (one tab per topic: "Auth flow", "Data model"). Default tab is "Diagrams".
 4. **Change a pin with `replace`, never by adding a second copy.** Remove pins

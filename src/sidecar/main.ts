@@ -1,15 +1,15 @@
 #!/usr/bin/env bun
+import { LinearElementEditor } from "@excalidraw/element";
 // The herdr-draw sidecar: one process per machine owning every board. Agents draw over each board's REST API
 // (http://127.0.0.1:<port>/b/<board>/api/..., the excalidraw skill's API, see src/board); the native Herdr canvas
 // mod subscribes to one board over the WebSocket on the same port and edits it with undo. Conversion and rough
 // paths run here with the Excalidraw SDK (in the mod's slow JS runtime one rectangle takes seconds).
 //   bun src/sidecar/main.ts        env: CANVAS_SIDECAR_PORT (default 3077)
-import { LinearElementEditor } from "@excalidraw/element";
 import type { ServerWebSocket } from "bun";
 import { handle, SIDECAR_SERVICE } from "../board/http.ts";
 import { prepare } from "../board/render.ts";
 import { frame, parseClientFrame, type ServerMessage, SIDECAR_PORT } from "../canvas/protocol.ts";
-import { elementPaints } from "../canvas/shape.ts";
+import { cutOut, elementPaints } from "../canvas/shape.ts";
 import { type CanvasElement, isCanvasElement } from "../canvas/types.ts";
 import { Registry } from "./boards.ts";
 import { type RawElement, stableSeed, withSeeds } from "./diff.ts";
@@ -32,11 +32,24 @@ function placeArrowLabels(els: CanvasElement[]): CanvasElement[] {
   });
 }
 
+/** Paints for every shape; an arrow or line with a label gets its stroke cut where the label sits, as in Excalidraw. */
+function withPaints(els: CanvasElement[]): CanvasElement[] {
+  const labels = new Map(els.flatMap((t) => (t.type === "text" && t.containerId ? [[t.containerId, t] as const] : [])));
+  return els.map((e): CanvasElement => {
+    if (e.type === "text") return e;
+    const paints = elementPaints(e);
+    const t = (e.type === "arrow" || e.type === "line") && labels.get(e.id);
+    if (!t) return { ...e, paints };
+    const r = { x: t.x - e.x, y: t.y - e.y, width: t.width, height: t.height };
+    return { ...e, paints: paints.map((p) => (p.kind === "stroke" ? { ...p, ops: cutOut(p.ops, r) } : p)) };
+  });
+}
+
 const convert = async (raw: readonly RawElement[]): Promise<CanvasElement[]> =>
-  placeArrowLabels(
-    ((await prepare(withSeeds(raw))) as { type: string; isDeleted?: boolean }[])
-      .filter(isCanvasElement)
-      .map((e): CanvasElement => (e.type === "text" ? e : { ...e, paints: elementPaints(e) })),
+  withPaints(
+    placeArrowLabels(
+      ((await prepare(withSeeds(raw))) as { type: string; isDeleted?: boolean }[]).filter(isCanvasElement),
+    ),
   );
 
 const boards = new Registry(convert, log);
