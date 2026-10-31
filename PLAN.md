@@ -63,6 +63,11 @@ Decided 2026-10-31. One package and CLI, `herdr-draw`, for both kinds of visual:
    stdin/stdout pipe over Herdr's own machine link. Ids are machine-qualified (`vpsme/t1f`), and E2's
    protocol should use them from the start so local and remote share one code path.
 
+8. **Mermaid pin to editable board (last).** Convert a pinned Mermaid diagram into Excalidraw elements
+   headlessly with Pele (`parse()` for structure, the tagged SVG for layout), replacing the upstream
+   browser-only `from-mermaid`. Flowcharts first, then state and class; "Edit as board" in the view
+   and `herdr-draw mermaid to-board`. Starts after the merged view and per-agent boards exist.
+
 ## Tracking
 
 Beads (prefix `hd`): one epic, a child epic per step, issues under each. `bd ready` lists what can start.
