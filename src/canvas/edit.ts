@@ -1,8 +1,7 @@
 // Editing geometry, element factories and the style palette. Pure (no GPUI, no IO), so it is unit-tested in
 // Bun and shared by the mod. Coordinates are world units unless a name says otherwise.
 import type { Bounds } from "./camera.ts";
-import type { Paint } from "./shape.ts";
-import type { CanvasElement, FillStyle, LinearElement, Point, StrokeStyle, TextElement } from "./types.ts";
+import type { CanvasElement, FillStyle, LinearElement, Paint, Point, StrokeStyle, TextElement } from "./types.ts";
 
 export type Tool =
   | "hand"

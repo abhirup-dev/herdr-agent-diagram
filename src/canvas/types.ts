@@ -1,7 +1,18 @@
 // The subset of Excalidraw's element format the canvas draws and edits. Field names and meanings match
 // @excalidraw/excalidraw 0.18 so scenes round-trip with excalidraw.com and the excalidraw skill.
 // Out of scope by decision: images, embeds/iframes, frames, libraries, collaboration.
-import type { Paint } from "./shape.ts";
+import type { Op } from "roughjs/bin/core";
+
+export type PathOp = Op;
+
+/** One stroke or fill of an element's hand-drawn look, in element-local coordinates (from the sidecar). */
+export interface Paint {
+  readonly kind: "stroke" | "fill";
+  readonly color: string;
+  readonly width: number;
+  readonly dash: readonly number[] | null;
+  readonly ops: readonly PathOp[];
+}
 
 export type Point = readonly [x: number, y: number];
 
@@ -100,5 +111,3 @@ const DRAWN_TYPES: ReadonlySet<string> = new Set<ElementType>([
 export function isCanvasElement(e: { readonly type: string; readonly isDeleted?: boolean }): e is CanvasElement {
   return DRAWN_TYPES.has(e.type) && e.isDeleted !== true;
 }
-
-export const isLinear = (e: CanvasElement): e is LinearElement => e.type === "arrow" || e.type === "line";

@@ -10,7 +10,6 @@
   "dependencies": {
     "@excalidraw/common": "0.18.0-4ce8305",
     "@excalidraw/element": "0.18.0-4ce8305",
-    "@excalidraw/math": "0.18.0-4ce8305",
     "@resvg/resvg-js": "^2.6.2",
     "mcp-excalidraw-server": "2.1.2",
     "path-data-parser": "0.1.0",
@@ -19,19 +18,21 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.4",
+    "@swc/core": "^1.16.21",
     "@types/bun": "1.4.4",
+    "dependency-cruiser": "^18.7.0",
+    "knip": "^6.44.1",
     "typescript": "7.0.2"
   },
   "scripts": {
     "setup": "bun scripts/setup.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p src/canvas-mod/tsconfig.json",
-    "lint": "biome check .",
+    "lint": "biome check . && bun run lint:deps && bun run lint:unused",
     "fix": "biome check --write .",
     "test": "bun test",
-    "build:mod": "bun build src/canvas-mod/main.ts --outdir dist/mods/excal-canvas --target browser --format esm --external gpui-kit --external gpui-base --external herdr --external websocket --external gpui-fps && cp src/canvas-mod/mod.json dist/mods/excal-canvas/ && cp -R src/canvas-mod/icons dist/mods/excal-canvas/ && mkdir -p dist/mods/excal-canvas/fonts && cp node_modules/mcp-excalidraw-server/assets/fonts/{Excalifont,Virgil,CascadiaCode}-Regular.ttf node_modules/mcp-excalidraw-server/assets/fonts/LICENSES.md dist/mods/excal-canvas/fonts/ && bun scripts/check-bundle.ts dist/mods/excal-canvas/main.js",
-    "check": "bun run typecheck && bun run lint && bun run test"
-  },
-  "patchedDependencies": {
-    "path-data-parser@0.1.0": "patches/path-data-parser@0.1.0.patch"
+    "build:mod": "bun build src/canvas-mod/main.ts --outdir dist/mods/excal-canvas --target browser --format esm --external gpui-kit --external gpui-base --external herdr --external websocket && cp src/canvas-mod/mod.json dist/mods/excal-canvas/ && cp -R src/canvas-mod/icons dist/mods/excal-canvas/ && mkdir -p dist/mods/excal-canvas/fonts && cp node_modules/mcp-excalidraw-server/assets/fonts/{Excalifont,Virgil,CascadiaCode}-Regular.ttf node_modules/mcp-excalidraw-server/assets/fonts/LICENSES.md dist/mods/excal-canvas/fonts/ && bun scripts/check-bundle.ts dist/mods/excal-canvas/main.js",
+    "check": "bun run typecheck && bun run lint && bun run test",
+    "lint:deps": "depcruise src bin scripts mods",
+    "lint:unused": "knip"
   }
 }

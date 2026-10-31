@@ -3,8 +3,7 @@
 // Hot path, written in scalar form on purpose: the mod runtime makes calls, tuple returns, destructuring and
 // spread calls very slow (one rectangle took seconds), so no helpers returning [x, y] and no `...` here.
 import { type Path, PathBuilder } from "gpui-kit";
-import type { Paint } from "../canvas/shape.ts";
-import type { CanvasElement } from "../canvas/types.ts";
+import type { CanvasElement, Paint } from "../canvas/types.ts";
 
 export type Hex = `#${string}`;
 

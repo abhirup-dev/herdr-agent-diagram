@@ -1,7 +1,6 @@
 // Messages between the sidecar (Bun) and the canvas mod (Herdr), JSON over the sidecar's WebSocket.
 // The sidecar owns conversion, rough paths, server writes and undo history; the mod owns interaction.
-import type { Paint } from "./shape.ts";
-import type { CanvasElement } from "./types.ts";
+import type { CanvasElement, Paint } from "./types.ts";
 
 export const SIDECAR_PORT = 3077;
 

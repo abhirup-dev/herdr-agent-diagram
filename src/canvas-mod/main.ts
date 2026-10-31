@@ -7,7 +7,6 @@
 // Units: camera offsets and .left()/.w() are logical px (the app zoom multiplies them); paths are built in
 // device px (scale = camera zoom x app zoom); pointer positions arrive in device px.
 import { InputState, type InputState as InputStateT, Textarea, TextareaState } from "gpui-base";
-import { hide_fps_monitor, show_fps_monitor } from "gpui-fps";
 import { type Context, div, type Element, type FocusHandle, View } from "gpui-kit";
 import { layout, settings, theme } from "herdr";
 import { WebSocket, type WebSocketSocket } from "websocket";
@@ -17,8 +16,7 @@ import { elementBounds, HANDLES, handlePoint, isShapeTool, pointHandles, simpleP
 import { Editor, type Mods } from "../canvas/editor.ts";
 import { type ClientMessage, parseServerMessage, type ServerMessage, SIDECAR_PORT } from "../canvas/protocol.ts";
 import { applyMessage, emptyScene, type Scene, sceneBounds } from "../canvas/scene.ts";
-import type { Paint } from "../canvas/shape.ts";
-import type { CanvasElement, TextElement } from "../canvas/types.ts";
+import type { CanvasElement, Paint, TextElement } from "../canvas/types.ts";
 import { type BuiltElement, buildElement, type Hex, hex } from "./paths.ts";
 import { footer, panel, toolbar } from "./ui.ts";
 
@@ -622,9 +620,7 @@ export default class ExcalCanvas extends View {
       this.autoFit = true;
       this.fitToScene();
     } else if (key === ")") this.zoomBy(1 / this.camera.zoom);
-    else if (keystroke === "f") {
-      if (!hide_fps_monitor()) show_fps_monitor({ anchor: "top_right" }); // Herdr's frame HUD
-    } else return this.ed.key(keystroke);
+    else return this.ed.key(keystroke);
     return true;
   }
 }

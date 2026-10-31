@@ -1,0 +1,15 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "src/canvas-mod/main.ts",
+    "src/sidecar/main.ts",
+    "bin/*.mjs",
+    "scripts/*.ts",
+    "mods/*/main.js",
+    "test/**/*.test.ts"
+  ],
+  "project": ["src/**/*.ts", "bin/**/*.mjs", "scripts/**/*.ts", "mods/**/*.js", "test/**/*.ts"],
+  "ignoreDependencies": ["gpui-kit", "gpui-base", "herdr", "websocket", "@swc/core"],
+  "ignoreBinaries": ["herdr-app"],
+  "ignoreExportsUsedInFile": true
+}

@@ -1,14 +1,70 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
-  "files": { "includes": ["src/**", "scripts/**", "test/**", "*.json", "!**/dist", "!types", "!**/*.svg"] },
-  "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 120 },
-  "javascript": { "formatter": { "quoteStyle": "double", "semicolons": "always" } },
-  "linter": {
-    "rules": {
-      "suspicious": { "noExplicitAny": "error" },
-      "style": { "useConst": "error", "noNonNullAssertion": "warn" },
-      "complexity": { "noExcessiveCognitiveComplexity": { "level": "warn", "options": { "maxAllowedComplexity": 20 } } }
+  "files": {
+    "includes": ["src/**", "scripts/**", "test/**", "bin/**", "mods/**", "*.json", "!**/dist", "!types", "!**/*.svg"]
+  },
+  "formatter": {
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 120
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "always"
     }
   },
-  "assist": { "actions": { "source": { "organizeImports": "on" } } }
+  "linter": {
+    "rules": {
+      "suspicious": {
+        "noExplicitAny": "error"
+      },
+      "style": {
+        "useConst": "error",
+        "noParameterAssign": "error",
+        "noNonNullAssertion": "warn",
+        "noNestedTernary": "warn"
+      },
+      "complexity": {
+        "noExcessiveCognitiveComplexity": {
+          "level": "warn",
+          "options": {
+            "maxAllowedComplexity": 15
+          }
+        },
+        "noExcessiveLinesPerFunction": {
+          "level": "warn",
+          "options": {
+            "maxLines": 60,
+            "skipBlankLines": true
+          }
+        },
+        "useMaxParams": {
+          "level": "warn",
+          "options": {
+            "max": 4
+          }
+        }
+      }
+    }
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["mods/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNodejsImportProtocol": "off"
+          }
+        }
+      }
+    }
+  ]
 }

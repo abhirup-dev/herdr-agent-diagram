@@ -7,10 +7,23 @@
 // props.animate: "always" (pulse while there are diagrams), "unseen" (only while one is unopened)
 // or "never"; props.period: one pulse, in ms.
 
-import { View, div } from "gpui-kit";
-import { h_flex } from "gpui-base";
-import { props, theme, appHome, home, readTextFile, watchFolder, openOverlay, shared, setShared, panes, run, exec } from "herdr";
 import * as fs from "fs/promises";
+import { h_flex } from "gpui-base";
+import { div, View } from "gpui-kit";
+import {
+  appHome,
+  exec,
+  home,
+  openOverlay,
+  panes,
+  props,
+  readTextFile,
+  run,
+  setShared,
+  shared,
+  theme,
+  watchFolder,
+} from "herdr";
 
 const DATA = "data/herdr-agent-diagram";
 
@@ -34,7 +47,11 @@ export default class Pane extends View {
 
   async load(cx) {
     const text = await readTextFile(this.file);
-    try { this.state = text ? JSON.parse(text) : null; } catch { this.state = null; }
+    try {
+      this.state = text ? JSON.parse(text) : null;
+    } catch {
+      this.state = null;
+    }
     this.canvas = Boolean(await readTextFile(this.file.replace(/state\.json$/, "canvas.json")));
     cx.notify();
   }
@@ -46,9 +63,18 @@ export default class Pane extends View {
     const open = panes().find((p) => p.mod === "excal-canvas" && p.tab === tab);
     return div()
       .id(`ph-canvas-${pane}`)
-      .flex_none().px(7).h(18).flex().items_center().rounded(9)
-      .bg(open ? t.accent : t.background).border_1().border_color(t.accent).shadow_md()
-      .text_size(10.5).font_bold()
+      .flex_none()
+      .px(7)
+      .h(18)
+      .flex()
+      .items_center()
+      .rounded(9)
+      .bg(open ? t.accent : t.background)
+      .border_1()
+      .border_color(t.accent)
+      .shadow_md()
+      .text_size(10.5)
+      .font_bold()
       .text_color(open ? t.accent_foreground : t.accent)
       .on_click((_e, cx) => {
         cx.stop_propagation();
@@ -69,9 +95,17 @@ export default class Pane extends View {
     const pulse = animate === "always" || (animate === "unseen" && unseen);
     return div()
       .id(`ph-diag-${pane}`)
-      .flex_none().px(7).h(18).flex().items_center().gap(4).rounded(9)
-      .bg(t.accent).shadow_md()
-      .text_size(10.5).font_bold()
+      .flex_none()
+      .px(7)
+      .h(18)
+      .flex()
+      .items_center()
+      .gap(4)
+      .rounded(9)
+      .bg(t.accent)
+      .shadow_md()
+      .text_size(10.5)
+      .font_bold()
       .text_color(t.accent_foreground)
       .when(pulse, (el) => el.loop("opacity", { from: 0.7, to: 1, period: props()?.period ?? 1100 }))
       .hover((s) => s.bg(t.accent).text_color(t.accent_foreground))
@@ -89,6 +123,13 @@ export default class Pane extends View {
     const t = theme();
     const badges = terminal ? [this.canvasBadge(t, pane), this.badge(t, pane, terminal)].filter(Boolean) : [];
     // The strip is drawn over the terminal: barely tinted, so only the badges stand out.
-    return h_flex().size_full().justify_end().items_center().gap(4).px(6).bg(t.background + "1a").children(badges);
+    return h_flex()
+      .size_full()
+      .justify_end()
+      .items_center()
+      .gap(4)
+      .px(6)
+      .bg(t.background + "1a")
+      .children(badges);
   }
 }
