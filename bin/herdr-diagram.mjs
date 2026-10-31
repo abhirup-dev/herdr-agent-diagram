@@ -29,6 +29,25 @@ export function extract(text) {
   return { mmd: (fence ? fence[1] : text).trim(), title: fence && head ? head[1].trim() : null }
 }
 
+const HELP = `herdr-diagram: pin Mermaid diagrams for the Herdr terminal you run in; they show in the app's pane badge and Diagrams popup.
+
+usage: herdr-diagram <command> [options]
+
+  add [--tab NAME] [--title T] [file]   pin a diagram (file or stdin: bare mermaid, or markdown with a \`\`\`mermaid fence
+                                        and a # heading as the title); prints its id (d1, d2, ...)
+  replace <id> [--title T] [file]       redraw a pin in place (same id, same tab)
+  remove <id>                           unpin; an emptied tab goes with it
+  ls [--json]                           tabs, ids, titles and sizes
+  clear                                 remove every pin of this terminal
+  help                                  this text
+
+options:
+  --tab NAME         group pins in a tab (default "Diagrams"); one tab per topic
+  --title T          the pin's title (else the markdown heading, else the diagram type)
+  --terminal ADDR    act for another terminal (default $HC_TERMINAL_ID, set inside herdr-core terminals)
+
+Rendering is Pele (every Mermaid 12.1 diagram type); a diagram Pele can't draw is refused with the reason, nothing is stored.
+`
 function die(msg) { process.stderr.write(`herdr-diagram: ${msg}\n`); process.exit(1) }
 
 function parseArgs(argv) {
@@ -79,6 +98,7 @@ function readInput(file) {
 async function main() {
   const o = parseArgs(process.argv.slice(2))
   const [cmd, ...rest] = o._
+  if (cmd === undefined || cmd === 'help' || o.help || o.h) { process.stdout.write(HELP); return }
   const terminal = o.terminal || process.env.HC_TERMINAL_ID
   if (!terminal) die('no $HC_TERMINAL_ID: run inside a herdr-core terminal or pass --terminal')
   if (/[^A-Za-z0-9_.-]/.test(terminal)) die(`terminal address "${terminal}" is not a plain id (remote machine/ addresses are not supported yet)`)
@@ -120,14 +140,14 @@ async function main() {
   } else if (cmd === 'clear') {
     fs.rmSync(dir, { recursive: true, force: true })
     console.log(`cleared ${terminal}`)
-  } else if (cmd === 'ls' || cmd === undefined) {
+  } else if (cmd === 'ls') {
     if (o.json) return console.log(JSON.stringify(state, null, 2))
     if (!state.tabs.length) return console.log(`no pins for ${terminal}`)
     for (const t of state.tabs) {
       console.log(`[${t.name}]`)
       for (const p of t.pins) console.log(`  ${p.id}  ${p.title}  (${p.type}, ${p.width}x${p.height})`)
     }
-  } else die(`unknown command ${cmd}`)
+  } else die(`unknown command ${cmd}; try herdr-diagram help`)
 }
 
 // Only run as a CLI; tests and spikes import extract.
