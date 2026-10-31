@@ -11,6 +11,8 @@ Decided 2026-10-31. One package and CLI, `herdr-draw`, for both kinds of visual:
 | Canvas scope | One board per agent: a canvas server per drawing agent on its own port |
 | Layout | Never edit the user's layout by default. Floating window without layout changes; header badge only in an opt-in layout we ship (like `win98`) |
 | Mermaid popup | Keep it, beside the new split and window views |
+| Go to agent | Every hosted view shows a "Go to agent" button that focuses the agent's pane (`pane.focus {terminal}`); the badge stays for the opt-in layout |
+| Processes | One shared sidecar for all boards. Board servers (`mcp-excalidraw-server`, one scene per process, ~58 MB each) run as Bun Workers inside the sidecar process if the spike holds up, else as separate processes started on demand and stopped when idle |
 
 ## Herdr facts behind them (from ~/.config/herdr-app/AGENTS.md)
 
@@ -39,12 +41,14 @@ Decided 2026-10-31. One package and CLI, `herdr-draw`, for both kinds of visual:
    `herdr-draw canvas open|start|status`, `herdr-draw open`, `herdr-draw install`. Replaces
    `herdr-diagram` and `herdr-canvas`. `mcp-excalidraw-server` as a dependency: `excalidraw-canvas`
    on PATH, no npx (about 1 s saved per agent command).
-2. **Board per agent.** `canvas open` starts a server and a sidecar on ports derived from the
-   terminal and prints the `EXPRESS_SERVER_URL` the agent prefixes its excalidraw commands with. The
-   pane connects to its terminal's sidecar.
+2. **Board per agent, one sidecar.** The sidecar becomes multi-board: one upstream link, mirror,
+   writer and converted scene per board; mod clients subscribe by board. Board servers start on
+   demand on a port per terminal (Workers in the sidecar process, or processes with idle shutdown).
+   `canvas open` prints the `EXPRESS_SERVER_URL` the agent prefixes its excalidraw commands with.
 3. **One visual mod, three hosts.** A single view (Mermaid pins or the canvas) shared by the split
    pane, the floating window and the popup. Shared chrome module (toolbar, footer, theme tokens, dark
-   mode, terminal opacity, zoom); Mermaid gets the canvas's theme sync and camera.
+   mode, terminal opacity, zoom); Mermaid gets the canvas's theme sync and camera. A "Go to agent"
+   button focuses the agent's pane.
 4. **One skill.** Asks Mermaid (pinned) or Excalidraw (interactive), then follows that path. The
    Excalidraw part is the pinned `excalidraw-skill` from `mcp-excalidraw-server install-skill`; the old
    skillshare copy gets excluded to avoid a clash.
@@ -52,6 +56,10 @@ Decided 2026-10-31. One package and CLI, `herdr-draw`, for both kinds of visual:
    mods and fonts; asks before adding the shortcut to keys.json; offers the opt-in layout. Replaces
    `install.sh`.
 6. **Docs and upstream.** README; Herdr feature-request drafts: header contributions from mods, pinch.
+
+## Tracking
+
+Beads (prefix `hd`): one epic, a child epic per step, issues under each. `bd ready` lists what can start.
 
 ## Lint backlog
 
