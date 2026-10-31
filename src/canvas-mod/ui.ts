@@ -74,14 +74,18 @@ export function toolbar(tool: Tool, onTool: (t: Tool) => void): Element {
       .child(div().absolute().right(3).bottom(1).text_size(9).text_color(MUTED).child(key));
     return i === 1 ? [div().w(1).h(20).mx(4).bg("#e9ecef"), cell] : [cell];
   });
-  return div()
-    .absolute()
-    .top(10)
-    .left(0)
-    .right(0)
-    .flex()
-    .justify_center()
-    .child(island().flex().items_center().gap(2).p(4).children(items));
+  return (
+    div()
+      .absolute()
+      .top(10)
+      .left(0)
+      .right(0)
+      .flex()
+      .justify_center()
+      .px(8)
+      // Wraps in a narrow pane (the canvas beside an agent) instead of clipping tools.
+      .child(island().flex().flex_wrap().justify_center().items_center().gap(2).p(4).children(items))
+  );
 }
 
 // --- properties panel -------------------------------------------------------------------------------------
