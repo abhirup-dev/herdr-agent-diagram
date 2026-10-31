@@ -6,7 +6,7 @@ import type { ClientMessage } from "../canvas/protocol.ts";
 import { type Clock, realClock } from "./clock.ts";
 import { Coalescer } from "./coalesce.ts";
 import { encode, readLines } from "./ndjson.ts";
-import { type BoardServerMessage, type DownFrame, parseUpFrame } from "./protocol.ts";
+import { type BoardClientMessage, type BoardServerMessage, type DownFrame, parseUpFrame } from "./protocol.ts";
 
 /** One board's connection to the local sidecar. `send` may be called before it opens. */
 export interface BoardSocket {
@@ -29,7 +29,10 @@ class Outbox {
   readonly #pending = new Coalescer();
   #busy = false;
 
-  constructor(private readonly write: EndpointOptions["write"]) {}
+  constructor(
+    private readonly write: EndpointOptions["write"],
+    private readonly stamp: (f: DownFrame) => string,
+  ) {}
 
   push(board: string, msg: BoardServerMessage): void {
     this.#pending.push(board, msg);
@@ -41,7 +44,7 @@ class Outbox {
     try {
       while (!this.#pending.empty) {
         const frames = this.#pending.drain().map(({ board, msg }): DownFrame => ({ kind: "board", board, msg }));
-        await this.write(frames.map(encode).join(""));
+        await this.write(frames.map(this.stamp).join(""));
       }
     } finally {
       this.#busy = false;
@@ -52,8 +55,11 @@ class Outbox {
 export async function runEndpoint(o: EndpointOptions): Promise<void> {
   const clock = o.clock ?? realClock;
   const idleMs = o.idleMs ?? 20000;
-  const out = new Outbox(o.write);
+  let n = 0;
+  const stamp = (f: DownFrame) => encode({ ...f, n: n++ });
+  const out = new Outbox(o.write, stamp);
   const boards = new Map<string, BoardSocket>();
+  let lastUp: number | undefined;
 
   const open = (board: string): void => {
     const sock = o.connect(
@@ -66,6 +72,24 @@ export async function runEndpoint(o: EndpointOptions): Promise<void> {
       },
     );
     boards.set(board, sock);
+  };
+
+  const onBoard = (board: string, msg: BoardClientMessage) => {
+    if (msg.type === "subscribe") {
+      boards.get(board)?.close();
+      open(board);
+    } else if (msg.type === "unsubscribe") {
+      const sock = boards.get(board);
+      boards.delete(board);
+      sock?.close();
+    } else boards.get(board)?.send(msg);
+  };
+
+  const reopenAll = () => {
+    for (const [board, sock] of [...boards]) {
+      sock.close();
+      open(board);
+    }
   };
 
   let timedOut = () => {};
@@ -83,19 +107,14 @@ export async function runEndpoint(o: EndpointOptions): Promise<void> {
       const f = parseUpFrame(line);
       if (!f) continue;
       touch();
+      // Up frames were lost (a relay starting over sends 0): reopening a board resends its full state.
+      if (f.n !== undefined && f.n !== 0 && lastUp !== undefined && f.n !== lastUp + 1) reopenAll();
+      lastUp = f.n ?? lastUp;
       if (f.kind === "ping") {
-        await o.write(encode({ kind: "pong", t: f.t } satisfies DownFrame));
+        await o.write(stamp({ kind: "pong", t: f.t }));
         continue;
       }
-      const { board, msg } = f;
-      if (msg.type === "subscribe") {
-        boards.get(board)?.close();
-        open(board);
-      } else if (msg.type === "unsubscribe") {
-        const sock = boards.get(board);
-        boards.delete(board);
-        sock?.close();
-      } else boards.get(board)?.send(msg);
+      onBoard(f.board, f.msg);
     }
   })();
 

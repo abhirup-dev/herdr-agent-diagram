@@ -3,8 +3,8 @@
 // board ids (`vpsme/t1f`) to a Bridge and unqualified ones to the local backend: one interface for both.
 import type { ClientMessage } from "../canvas/protocol.ts";
 import { type Clock, realClock } from "./clock.ts";
-import { encode, readLines } from "./ndjson.ts";
-import { type BoardServerMessage, parseDownFrame, splitBoardId, type UpFrame } from "./protocol.ts";
+import { encode, LineDecoder, readLines } from "./ndjson.ts";
+import { type BoardServerMessage, type DownFrame, parseDownFrame, splitBoardId, type UpFrame } from "./protocol.ts";
 
 export type Listener = (msg: BoardServerMessage) => void;
 
@@ -34,11 +34,64 @@ export const spawnLink: Spawn = (argv) => {
   };
 };
 
+/** Lines pushed from a callback, read as an async iterable. */
+class LineQueue implements AsyncIterable<string> {
+  #items: string[] = [];
+  #wake: (() => void) | undefined;
+  #ended = false;
+  push(lines: readonly string[]): void {
+    this.#items.push(...lines);
+    this.#wake?.();
+  }
+  end(): void {
+    this.#ended = true;
+    this.#wake?.();
+  }
+  async *[Symbol.asyncIterator](): AsyncGenerator<string> {
+    for (;;) {
+      const next = this.#items.shift();
+      if (next !== undefined) yield next;
+      else if (this.#ended) return;
+      else await new Promise<void>((r) => (this.#wake = r));
+    }
+  }
+}
+
+/** Like spawnLink, under a pseudo-terminal: `hc attach` needs one. */
+export const spawnPty: Spawn = (argv) => {
+  const lines = new LineQueue();
+  const dec = new LineDecoder();
+  const term = new Bun.Terminal({ cols: 200, rows: 50, data: (_t, d) => lines.push(dec.push(d)) });
+  const proc = Bun.spawn([...argv], { terminal: term });
+  void proc.exited.then(() => lines.end());
+  return {
+    write: (text) => term.write(text),
+    lines,
+    kill() {
+      proc.kill();
+      term.close();
+    },
+  };
+};
+
 const shq = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
 
 /**
- * argv that runs `remoteLine` (a shell line) on a machine from `hc machine ls --json`.
- * Keepalives are short: the user's ssh config may only notice a dead link after minutes.
+ * The hc-native link (run with spawnPty): makes sure terminal `name` on `machine` runs `remoteLine` with its tty in
+ * raw mode, then attaches to it. The remote program outlives dropped links; reattaching takes ~40 ms.
+ * `name` must be unique per local core: two relays attached to one endpoint would mix their input.
+ */
+export function hcLinkArgv(machine: string, name: string, remoteLine: string): string[] {
+  const run = ["hc", "run", "--on", machine, "--bg", "--rm", "--no-parent", "--name", name, "--", "sh", "-c"];
+  const start = [...run, `stty raw -echo; exec ${remoteLine}`].map(shq).join(" ");
+  // `hc run` fails with name_taken when the endpoint already runs: attach to it anyway.
+  return ["sh", "-c", `${start} >/dev/null 2>&1; exec hc attach ${shq(`${machine}/${name}`)}`];
+}
+
+/**
+ * Fallback link (run with spawnLink): argv that runs `remoteLine` on a machine from `hc machine ls --json`, over ssh
+ * or the machine's --via command, as hc itself does. Keepalives are short: the user's ssh config may only notice a
+ * dead link after minutes. A ControlMaster in the user's ssh config is reused as ssh always does.
  */
 export function linkArgv(m: { readonly target: string; readonly via: boolean }, remoteLine: string): string[] {
   // shortcut: assumes hc keeps a --via machine's command in `target` (not observable on vpsme, an ssh machine); verify with a real --via machine.
@@ -69,6 +122,10 @@ export class Bridge implements Backend {
   #live = false;
   #attempt = 0;
   #lastFrame = 0;
+  /** When the current link started: frames before the pong to a ping sent since then are stale. */
+  #since = 0;
+  #sentN = 0;
+  #recvN: number | undefined;
   #cancel: (() => void) | undefined;
 
   constructor(options: BridgeOptions) {
@@ -121,7 +178,7 @@ export class Bridge implements Backend {
   #write(f: UpFrame): void {
     const link = this.#link;
     try {
-      link?.write(encode(f));
+      link?.write(encode({ ...f, n: this.#sentN++ }));
     } catch {
       if (link) this.#lost(link, "write failed");
     }
@@ -132,8 +189,11 @@ export class Bridge implements Backend {
     const link = this.#o.spawn(this.#o.argv);
     this.#link = link;
     this.#lastFrame = this.#o.clock.now();
-    for (const board of this.#listeners.keys()) this.#write({ kind: "board", board, msg: { type: "subscribe" } });
-    this.#beat(link);
+    this.#since = this.#lastFrame;
+    this.#sentN = 0;
+    this.#recvN = undefined;
+    this.#beat(link); // the ping goes first, so its pong precedes every reply to the subscribes
+    this.#subscribeAll();
     void this.#read(link);
   }
 
@@ -154,13 +214,32 @@ export class Bridge implements Backend {
         const f = parseDownFrame(line);
         if (!f) continue;
         this.#lastFrame = this.#o.clock.now();
-        if (!this.#live) this.#up();
+        if (!this.#fresh(f)) continue;
         if (f.kind === "board") for (const l of this.#listeners.get(f.board) ?? []) l(f.msg);
       }
     } catch {
       // the stream failed: same as its end
     }
     this.#lost(link, "link closed");
+  }
+
+  /** False for frames an hc attach repaints: old ones before the fresh pong, or ones seen already after a re-dial. */
+  #fresh(f: DownFrame): boolean {
+    if (!this.#live) {
+      if (f.kind !== "pong" || f.t < this.#since) return false;
+      this.#up();
+    }
+    if (f.n !== undefined && this.#recvN !== undefined) {
+      if (f.n <= this.#recvN) return false;
+      if (f.n > this.#recvN + 1) this.#subscribeAll(); // frames were lost
+    }
+    this.#recvN = f.n ?? this.#recvN;
+    return true;
+  }
+
+  /** Each backend answers a subscribe with the board's full state. */
+  #subscribeAll(): void {
+    for (const board of this.#listeners.keys()) this.#write({ kind: "board", board, msg: { type: "subscribe" } });
   }
 
   #up(): void {
