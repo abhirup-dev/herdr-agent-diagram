@@ -156,6 +156,10 @@ describe("install flags", () => {
       machines: ["vpsme"],
     });
     expect(parseArgs(["--headless", "--no-machines"])).toMatchObject({ headless: true, machines: [] });
+    expect(parseArgs(["--yes", "--agents", "none"])).toMatchObject({ yes: true, agents: ["none"], machines: null });
+    expect(parseArgs(["--machines"])).toMatchObject({ machines: [] });
+    expect(parseArgs(["--help"])).toMatchObject({ help: true });
+    expect(() => parseArgs(["--bogus"])).toThrow("Unknown option `--bogus`");
   });
 });
 

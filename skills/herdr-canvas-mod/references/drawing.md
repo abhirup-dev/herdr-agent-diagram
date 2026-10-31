@@ -19,11 +19,10 @@ Results are JSON on stdout — except `describe` (plain text) and raw-content ou
 | Understand the scene | `describe` (plain-text summary: ids, positions, labels, connections) |
 | See the scene | `screenshot [--out f.png]` (PNG without `--out` → temp file path in JSON; SVG without `--out` → raw SVG) |
 | Layout operations | `arrange align\|distribute\|group\|ungroup\|lock\|unlock\|duplicate --ids a,b,c [--to left\|horizontal\|...]` |
-| Scene files | `export [--out scene.excalidraw]`, `import [scene.excalidraw|-] [--replace]` — a `.excalidraw.md` out path writes Obsidian's format (see File I/O) |
+| Scene files | `export [--out scene.excalidraw]`, `import [scene.excalidraw|-] [--replace]` (plain .excalidraw JSON only) |
 | Snapshots | `snapshot save\|list\|restore <name>` |
-| Share link | `share` (encrypted upload → excalidraw.com URL) |
 | Wipe canvas | `clear --yes` |
-| Install / upgrade this skill | `install-skill --dir <skills-root>` (agent chooses project/global root) |
+| Usage of any command | `herdr-draw canvas help [command]` or `<command> --help` |
 
 ### Element Format
 
@@ -203,20 +202,11 @@ add elements
 - Export scene: `export --out diagram.excalidraw` (no `--out` → JSON to stdout)
 - Import scene: `import diagram.excalidraw` (append) or `import diagram.excalidraw --replace`
 - Image: `screenshot --out diagram.png` / `screenshot --format svg --out diagram.svg`
-- Share link: `share` — encrypts the scene and returns a shareable excalidraw.com URL
 
 This is how diagrams live in a repo: commit the `.excalidraw` file, and re-`import` + edit + `export` it when the architecture changes.
 
-### Obsidian vaults: use `.excalidraw.md`
-
-Check the destination before writing: if any ancestor directory contains `.obsidian/`, it is an Obsidian vault. A raw `.excalidraw` file there opens in the Excalidraw plugin only in **compatibility mode** ("Convert to new format" warning), gets no block references or vault-wide search, and default Obsidian Sync skips non-`.md` files. Give the export a `.excalidraw.md` extension and the CLI writes the plugin's native format automatically:
-
-```bash
-herdr-draw canvas export --out "$VAULT/diagrams/system-map.excalidraw.md"   # .md → Obsidian format (or force with --format obsidian)
-herdr-draw canvas import "$VAULT/diagrams/system-map.excalidraw.md" --replace  # reads both plain and compressed Drawing blocks
-```
-
-Round-trips are safe: text-element block references follow the plugin's own id rules, so re-importing, editing, and re-exporting the same file keeps links from other notes intact.
+Obsidian's `.excalidraw.md` format is not supported: `export` refuses a `.md` out path. In an Obsidian vault, export
+plain `.excalidraw` (the Excalidraw plugin opens it in compatibility mode).
 
 ## Workflow: Snapshots
 

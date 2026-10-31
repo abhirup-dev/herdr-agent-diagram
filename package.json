@@ -19,6 +19,7 @@
     "@excalidraw/common": "0.18.0-4ce8305",
     "@excalidraw/element": "0.18.0-4ce8305",
     "@resvg/resvg-js": "^2.6.2",
+    "cac": "^7.1.0",
     "jsdom": "26.1.0",
     "path-data-parser": "0.1.0",
     "pele": "^1.12.0",

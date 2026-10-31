@@ -2,9 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { route } from "../cli/herdr-draw.mjs";
-import { status } from "../cli/lib/canvas.mjs";
-import { extract, parseArgs } from "../cli/lib/mermaid.mjs";
+import { program, route } from "../cli/herdr-draw.mjs";
+import { program as canvasProgram, status } from "../cli/lib/canvas.mjs";
+import { program as installProgram } from "../cli/lib/install.mjs";
+import { parseArgs as logsArgs, program as logsProgram } from "../cli/lib/logs.mjs";
+import { extract, program as mermaidProgram, parseArgs } from "../cli/lib/mermaid.mjs";
+import { COMMANDS } from "../src/board/cli.ts";
 
 const CLI = join(import.meta.dir, "../cli/herdr-draw.mjs");
 const run = (args: string[], env: Record<string, string> = {}, stdin = "") => {
@@ -14,26 +17,102 @@ const run = (args: string[], env: Record<string, string> = {}, stdin = "") => {
 
 describe("herdr-draw router", () => {
   test("routes known groups, refuses unknown ones", () => {
-    for (const argv of [[], ["help"], ["mermaid", "ls"], ["canvas", "status"], ["open"]])
+    for (const argv of [[], ["help"], ["-h"], ["--version"], ["-V"], ["mermaid", "ls"], ["canvas", "status"], ["open"]])
       expect(route(argv)).toBeFunction();
-    expect(route(["bogus"])).toBeNull();
-    expect(route(["open", "extra"])).toBeNull();
+    for (const argv of [["bogus"], ["--bogus"], ["bridge"], ["bridge", "other"], ["help", "bogus"]])
+      expect(route(argv)).toBeNull();
+    expect(route(["bridge", "endpoint"])).toBeFunction();
   });
 
-  test("help lists every group; unknown commands exit 2 with usage", () => {
-    const help = run(["help"]);
-    expect(help.code).toBe(0);
-    for (const g of ["mermaid", "canvas", "open"]) expect(help.out).toContain(`  ${g} `);
+  test("unknown commands, options and extra arguments exit 2 with a message", () => {
     const bad = run(["bogus"]);
     expect(bad.code).toBe(2);
+    expect(bad.err).toContain("unknown command bogus");
     expect(bad.err).toContain("usage: herdr-draw");
     expect(run(["mermaid", "bogus"]).code).toBe(2);
+    for (const [argv, msg] of [
+      [["mermaid", "add", "--bogus"], "Unknown option `--bogus`"],
+      [["mermaid", "remove"], "missing required args"],
+      [["open", "extra"], "Unused args: `extra`"],
+      [["logs", "a", "b"], "Unused args: `b`"],
+      [["install", "--bogus"], "Unknown option `--bogus`"],
+    ] as const) {
+      const r = run([...argv]);
+      expect(r.code).toBe(2);
+      expect(r.err).toContain(msg);
+    }
+  });
+
+  test("--version and -V print only the version (doctor compares it)", () => {
+    const { version } = JSON.parse(readFileSync(join(import.meta.dir, "../package.json"), "utf8"));
+    for (const flag of ["--version", "-V"]) expect(run([flag]).out).toBe(`${version}\n`);
+  });
+
+  test("help covers every group, option, board command and environment variable", () => {
+    const help = run(["help"]);
+    expect(help.code).toBe(0);
+    for (const g of ["mermaid", "canvas", "open", "install", "uninstall", "doctor", "logs", "bridge endpoint"])
+      expect(help.out).toContain(`  ${g} `);
+    const programs = [program(), mermaidProgram(), canvasProgram(), installProgram(), logsProgram()];
+    for (const opt of programs.flatMap((p) => [p.globalCommand, ...p.commands]).flatMap((c) => c.options))
+      for (const flag of opt.rawName.split(/[ ,]+/).filter((t: string) => t.startsWith("-")))
+        expect(help.out).toContain(flag);
+    for (const c of Object.values(COMMANDS)) expect(help.out).toContain(`  ${c.usage}\n`);
+    for (const v of [
+      "HC_TERMINAL_ID",
+      "HERDR_APP_HOME",
+      "CANVAS_SIDECAR_PORT",
+      "HERDR_DRAW_BUN",
+      "HERDR_DRAW_DEBUG",
+      "HERDR_DRAW_LOGS",
+      "HERDR_DRAW_BOARDS",
+      "XDG_STATE_HOME",
+      "HERDR_DRAW_HOME",
+      "HERDR_DRAW_REPO",
+    ])
+      expect(help.out).toContain(`  ${v} `);
+    // the same help from any group, and per board command
+    expect(run(["mermaid", "add", "--help"]).out).toStartWith("herdr-draw mermaid:");
+    expect(run(["canvas", "help"]).out).toContain("  clear --yes\n");
+    for (const argv of [
+      ["canvas", "help", "query"],
+      ["canvas", "query", "--help"],
+      ["help", "canvas", "query"],
+    ])
+      expect(run(argv).out).toStartWith(`Usage: ${COMMANDS.query?.usage}`);
+  });
+
+  test("every board command's flags are in its usage", () => {
+    for (const c of Object.values(COMMANDS))
+      for (const f of Object.keys(c.flags ?? {})) expect(c.usage).toContain(`--${f}`);
   });
 });
 
-describe("mermaid args", () => {
-  test("parseArgs takes values for --tab/--title/--terminal, flags otherwise", () => {
-    expect(parseArgs(["add", "--tab", "T", "--json", "f.mmd"])).toEqual({ _: ["add", "f.mmd"], tab: "T", json: true });
+describe("group args", () => {
+  test("mermaid: the command, its positionals, string options and switches", () => {
+    expect(parseArgs(["add", "--tab", "T", "--title", "2024", "f.mmd"])).toMatchObject({
+      cmd: "add",
+      args: ["f.mmd"],
+      options: { tab: "T", title: "2024" },
+    });
+    expect(parseArgs(["ls", "--json"])).toMatchObject({ cmd: "ls", args: [], options: { json: true } });
+    expect(parseArgs(["bogus", "x"])).toMatchObject({ cmd: undefined, args: ["bogus", "x"] });
+    expect(() => parseArgs(["ls", "--tab", "T"])).toThrow("Unknown option `--tab`");
+    expect(() => parseArgs(["add", "--tab"])).toThrow("value is missing");
+    // help skips the checks
+    expect(parseArgs(["replace", "--help"])).toMatchObject({ cmd: "replace", options: { help: true } });
+  });
+
+  test("logs: component, -n, --machine, --path", () => {
+    expect(logsArgs(["sidecar", "-n", "5", "--machine", "vpsme", "--path"])).toEqual({
+      component: "sidecar",
+      n: 5,
+      machine: "vpsme",
+      path: true,
+      help: false,
+    });
+    expect(logsArgs(["-n", "nope"])).toMatchObject({ component: null, n: 100, machine: null });
+    expect(logsArgs(["help"]).help).toBe(true);
   });
 
   test("extract reads a mermaid fence and its heading", () => {

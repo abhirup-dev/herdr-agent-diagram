@@ -9,7 +9,9 @@ import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
+import { cac } from "cac";
 import { logger } from "../../src/log/log.mjs";
+import { parse } from "./args.mjs";
 
 const log = logger("install");
 const SRC = path.resolve(path.dirname(fs.realpathSync(fileURLToPath(import.meta.url))), "../..");
@@ -30,15 +32,21 @@ const REMOTE_DIR = ".local/share/herdr-draw";
 
 export const HELP = `herdr-draw install: set up herdr-draw on this machine and, if you choose, on your other machines.
 
-usage: herdr-draw install [-y] [--agents claude,pi,codex] [--machines vpsme,... | --no-machines]
-       herdr-draw uninstall [-y] [--machines ...]
+usage: herdr-draw install [-y] [--agents claude,pi,codex | --agents none] [--machines vpsme,... | --no-machines]
+       herdr-draw uninstall [-y] [--machines vpsme,...]
        herdr-draw doctor
+       herdr-draw --version
 
-  -y            no questions: every detected agent, and every connected machine unless --machines/--no-machines
-  --agents      which agents get the skills (default: the ones found)
-  --machines    other machines (hc machine ls) that get the CLI and skills, so agents there can draw;
-                their canvases and pins show in this Herdr app
-  --headless    (used on other machines) CLI and skills only, no Herdr app here
+  install             the CLI (~/.local/bin/herdr-draw), the mods and the skills here; then, if chosen, other machines
+  uninstall           remove them here and from the synced machines (or only the --machines given)
+  doctor              check the setup here and on synced machines; exits 1 if something is missing
+  -y, --yes           no questions: every detected agent, and every connected machine unless --machines/--no-machines
+  --agents LIST       which agents get the skills (claude, pi, codex; default: the ones found); none for no skills
+  --machines LIST     other machines (hc machine ls) that get the CLI and skills, so agents there can draw;
+                      their canvases and pins show in this Herdr app
+  --no-machines       only this machine
+  --headless          (used on other machines) CLI and skills only, no Herdr app here
+  -V, --version       print the version (doctor compares it across machines)
 `;
 
 // ---------- small helpers ----------
@@ -53,19 +61,38 @@ const die = (msg) => {
   process.exit(1);
 };
 
+/** install/uninstall/doctor options (see args.mjs). */
+export function program() {
+  const cli = cac("herdr-draw install");
+  cli.option("-h, --help", "help");
+  cli
+    .command("")
+    .option("-y, --yes", "no questions")
+    .option("--agents <list>", "agents")
+    .option("--machines [list]", "machines")
+    .option("--no-machines", "only this machine")
+    .option("--headless", "no Herdr app here");
+  return cli;
+}
+
+/** @param {string[]} argv */
 export function parseArgs(argv) {
-  /** @type {{ yes: boolean, headless: boolean, agents: string[] | null, machines: string[] | null }} */
-  const o = { yes: false, headless: false, agents: null, machines: null };
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === "-y" || a === "--yes") o.yes = true;
-    else if (a === "--headless") o.headless = true;
-    else if (a === "--no-machines") o.machines = [];
-    else if (a === "--agents" || a === "--machines") o[a.slice(2)] = (argv[++i] ?? "").split(",").filter(Boolean);
-    else die(`unknown option ${a}\n\n${HELP}`);
-  }
-  const bad = (o.agents ?? []).filter((a) => !AGENTS[a]);
-  if (bad.length) die(`unknown agent ${bad.join(", ")} (known: ${Object.keys(AGENTS).join(", ")})`);
+  const { options } = parse(program(), argv);
+  const list = (v) => (typeof v === "string" ? v.split(",").filter(Boolean) : null);
+  /** @type {{ yes: boolean, headless: boolean, agents: string[] | null, machines: string[] | null, help?: true }} */
+  const o = {
+    yes: Boolean(options.yes),
+    headless: Boolean(options.headless),
+    agents: list(options.agents),
+    // --no-machines is false, a bare --machines true, but no flag at all is also true (cac's default for --no-)
+    machines:
+      options.machines === false || (options.machines === true && argv.includes("--machines"))
+        ? []
+        : list(options.machines),
+    ...(options.help ? { help: true } : {}),
+  };
+  const bad = (o.agents ?? []).filter((a) => a !== "none" && !AGENTS[a]);
+  if (bad.length) die(`unknown agent ${bad.join(", ")} (known: ${Object.keys(AGENTS).join(", ")}, or none)`);
   return o;
 }
 
@@ -316,8 +343,7 @@ async function chooseMachines(o, ask) {
 
 // ---------- commands ----------
 
-async function install(argv, env) {
-  const o = parseArgs(argv);
+async function install(o, env) {
   const ask = asker(o.yes);
   try {
     const bun = bunPath();
@@ -374,8 +400,7 @@ function removeLocal(env, headless) {
   fs.rmSync(stateFile(env), { force: true });
 }
 
-async function uninstall(argv, env) {
-  const o = parseArgs(argv);
+async function uninstall(o, env) {
   const machines = o.machines ?? Object.keys(loadState(env)?.machines ?? {});
   const ask = asker(o.yes);
   try {
@@ -426,8 +451,9 @@ function doctor(env) {
 export const version = () => say(VERSION);
 
 export function setup(cmd, argv, env) {
-  if (argv[0] === "help" || argv[0] === "--help") return say(HELP);
-  if (cmd === "install") return install(argv, env);
-  if (cmd === "uninstall") return uninstall(argv, env);
+  const o = argv[0] === "help" ? { help: true } : parseArgs(argv);
+  if (o.help) return process.stdout.write(HELP);
+  if (cmd === "install") return install(o, env);
+  if (cmd === "uninstall") return uninstall(o, env);
   return doctor(env);
 }

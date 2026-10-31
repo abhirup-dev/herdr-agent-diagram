@@ -14,7 +14,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Resvg } from "@resvg/resvg-js";
+import { cac } from "cac";
 import { render } from "pele";
+import { parse } from "./args.mjs";
 import { appHere, signal } from "./canvas.mjs";
 
 const APP_HOME = process.env.HERDR_APP_HOME || path.join(os.homedir(), ".config", "herdr-app");
@@ -50,11 +52,12 @@ usage: herdr-draw mermaid <command> [options]
                                         readability warnings (no terminal needed for a file or stdin)
   ls [--json]                           tabs, ids, titles and sizes
   clear                                 remove every pin of this terminal
-  help                                  this text
+  help                                  this text (also -h, --help after any command)
 
 options:
-  --tab NAME         group pins in a tab (default "Diagrams"); one tab per topic
-  --title T          the pin's title (else the markdown heading, else the diagram type)
+  --tab NAME         (add) group pins in a tab (default "Diagrams"); one tab per topic
+  --title T          (add, replace) the pin's title (else the markdown heading, else the diagram type)
+  --json             (ls) the whole state as JSON
   --terminal ADDR    act for another terminal (default $HC_TERMINAL_ID, set inside herdr-core terminals)
 
 Rendering is Pele (every Mermaid 12.1 diagram type); a diagram Pele can't draw is refused with the reason, nothing is stored.
@@ -95,17 +98,22 @@ function die(msg) {
   process.exit(1);
 }
 
-export function parseArgs(argv) {
-  /** @type {{ _: string[], [flag: string]: string[] | string | boolean }} */
-  const o = { _: [] };
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === "--tab" || a === "--title" || a === "--terminal") o[a.slice(2)] = argv[++i];
-    else if (a.startsWith("--")) o[a.slice(2)] = true;
-    else o._.push(a);
-  }
-  return o;
+/** The mermaid group's commands and options (see args.mjs). */
+export function program() {
+  const cli = cac("herdr-draw mermaid");
+  cli.option("--terminal <addr>", "act for another terminal").option("-h, --help", "help");
+  cli.command("add [file]").option("--tab <name>", "tab").option("--title <title>", "title");
+  cli.command("replace <id> [file]").option("--title <title>", "title");
+  cli.command("remove <id>");
+  cli.command("check [target]");
+  cli.command("ls").option("--json", "JSON");
+  cli.command("clear");
+  cli.command("help");
+  return cli;
 }
+
+/** @param {string[]} argv */
+export const parseArgs = (argv) => parse(program(), argv);
 
 function load(dir) {
   try {
@@ -181,17 +189,16 @@ function check(file, mmd = extract(readInput(file)).mmd, label = "") {
 }
 
 export async function mermaid(argv) {
-  const o = parseArgs(argv);
-  const [cmd, ...rest] = o._;
-  if (cmd === undefined || cmd === "help" || o.help || o.h) {
+  const { cmd, args: rest, options: o } = parseArgs(argv);
+  if (o.help || cmd === "help" || (!cmd && !rest.length)) {
     process.stdout.write(HELP);
     return;
   }
-  if (cmd === "check" && (!rest[0] || fs.existsSync(rest[0]))) return check(rest[0]); // a file or stdin: no terminal needed
-  if (!["add", "replace", "remove", "ls", "clear", "check"].includes(cmd)) {
-    process.stderr.write(`herdr-draw mermaid: unknown command ${cmd}\n\n${HELP}`);
+  if (!cmd) {
+    process.stderr.write(`herdr-draw mermaid: unknown command ${rest[0]}\n\n${HELP}`);
     process.exit(2);
   }
+  if (cmd === "check" && (!rest[0] || fs.existsSync(rest[0]))) return check(rest[0]); // a file or stdin: no terminal needed
   const terminal = o.terminal || process.env.HC_TERMINAL_ID;
   if (!terminal) die("no $HC_TERMINAL_ID: run inside a herdr-core terminal or pass --terminal");
   if (/[^A-Za-z0-9_.-]/.test(terminal))

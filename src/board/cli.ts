@@ -297,7 +297,7 @@ const IMAGE_FLAGS = {
   "no-embed-fonts": "switch",
 } as const;
 
-const COMMANDS: Record<string, Command> = {
+export const COMMANDS: Record<string, Command> = {
   status: { usage: "status", summary: "Board health and element count", run: async ({ c }) => print(await c.health()) },
   start: { usage: "start", summary: "Start the sidecar if needed", run: async ({ c }) => print(await c.health()) },
   stop: {
@@ -348,13 +348,13 @@ const COMMANDS: Record<string, Command> = {
   },
   screenshot: {
     usage:
-      "screenshot [--out f.png|f.svg] [--format png|svg] [--no-background] [--dark] [--scale N] [--padding N] [--ids a,b] [--frame id] [--no-embed-fonts]",
+      "screenshot [--out f.png|f.svg] [--format png|svg] [--no-background] [--dark] [--scale N] [--padding N] [--ids a,b] [--frame id] [--no-embed-fonts] [--renderer auto|node]",
     summary: "Render the board to PNG/SVG (headless)",
     flags: IMAGE_FLAGS,
     run: screenshot,
   },
   export: {
-    usage: "export [--out scene.excalidraw]",
+    usage: "export [--out scene.excalidraw] [--format json]",
     summary: "Export the scene as .excalidraw JSON",
     flags: { out: "value", format: "value" },
     run: exportScene,
@@ -367,7 +367,8 @@ const COMMANDS: Record<string, Command> = {
   },
   snapshot: { usage: "snapshot save|list|restore [name]", summary: "Named board snapshots", run: snapshot },
   arrange: {
-    usage: "arrange align|distribute|group|ungroup|lock|unlock|duplicate --ids a,b,c [--to ...]",
+    usage:
+      "arrange align|distribute|group|lock|unlock|duplicate --ids a,b,c [--to ...] [--offset x,y] | arrange ungroup --group <groupId>",
     summary: "Align, distribute, group, lock, duplicate elements",
     flags: { ids: "value", to: "value", group: "value", offset: "value" },
     run: arrange,
@@ -384,15 +385,19 @@ const COMMANDS: Record<string, Command> = {
 };
 
 function help(): void {
-  const lines = Object.entries(COMMANDS).map(([name, c]) => `  ${name.padEnd(12)} ${c.summary}`);
-  process.stdout.write(`Board commands:\n${lines.join("\n")}\nRun \`help <command>\` for usage.\n`);
+  const lines = Object.values(COMMANDS).map((c) => `  ${c.usage}\n      ${c.summary}`);
+  const codes = "exit codes: 0 ok, 1 error, 2 usage, 3 board unreachable";
+  process.stdout.write(`Board commands (results are JSON on stdout; ${codes}):\n${lines.join("\n")}\n`);
 }
+
+const HELP = new Set(["help", "--help", "-h"]);
 
 /** Runs one board command; resolves to the exit code. */
 export async function run(argv: string[], opts: CliOptions): Promise<number> {
   const [name, ...rest] = argv;
-  if (!name || name === "help" || name === "--help" || name === "-h") {
-    const cmd = rest[0] ? COMMANDS[rest[0]] : undefined;
+  // help, help <command>, <command> --help
+  if (!name || HELP.has(name) || rest.some((a) => HELP.has(a) && a !== "help")) {
+    const cmd = name && COMMANDS[HELP.has(name) ? (rest[0] ?? "") : name];
     if (cmd) process.stdout.write(`Usage: ${cmd.usage}\n  ${cmd.summary}\n`);
     else help();
     return 0;
