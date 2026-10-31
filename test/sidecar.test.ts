@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { diff, stableSeed, withSeeds } from "../src/sidecar/mirror.ts";
+import { diff, stableSeed, withSeeds } from "../src/sidecar/diff.ts";
 
-describe("sidecar mirror", () => {
+describe("sidecar diff", () => {
   test("diff ignores fields the SDK regenerates on every conversion", () => {
     const prev = new Map([["a", { id: "a", x: 1, updated: 1, versionNonce: 5 }]]);
     expect(diff(prev, [{ id: "a", x: 1, updated: 2, versionNonce: 9 }]).upsert).toEqual([]);

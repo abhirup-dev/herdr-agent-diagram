@@ -138,24 +138,34 @@ describe("scene", () => {
   const a = { ...rect, id: "a", index: "a1" };
   const b = { ...rect, id: "b", index: "a0", x: 300 };
   test("scene message replaces everything and orders by fractional index", () => {
-    const s = applyMessage(emptyScene, { type: "scene", rev: 1, elements: [a, b] });
+    const s = applyMessage(emptyScene, { type: "scene", board: "default", rev: 1, elements: [a, b] });
     expect(s.order.map((e) => e.id)).toEqual(["b", "a"]);
   });
   test("patch upserts and removes, reporting changed ids", () => {
-    const s1 = applyMessage(emptyScene, { type: "scene", rev: 1, elements: [a, b] });
+    const s1 = applyMessage(emptyScene, { type: "scene", board: "default", rev: 1, elements: [a, b] });
     const changed = new Set<string>();
-    const s2 = applyMessage(s1, { type: "patch", rev: 2, upsert: [{ ...a, x: 50 }], remove: ["b"] }, changed);
+    const s2 = applyMessage(
+      s1,
+      { type: "patch", board: "default", rev: 2, upsert: [{ ...a, x: 50 }], remove: ["b"] },
+      changed,
+    );
     expect(s2.order.map((e) => e.id)).toEqual(["a"]);
     expect(s2.byId.get("a")?.x).toBe(50);
     expect([...changed].sort()).toEqual(["a", "b"]);
   });
   test("elements without an index stack on top in arrival order", () => {
-    const s = applyMessage(emptyScene, { type: "scene", rev: 1, elements: [{ ...a, index: null, id: "n" }, a] });
+    const s = applyMessage(emptyScene, {
+      type: "scene",
+      board: "default",
+      rev: 1,
+      elements: [{ ...a, index: null, id: "n" }, a],
+    });
     expect(s.order.map((e) => e.id)).toEqual(["a", "n"]);
   });
   test("bounds cover shapes and arrow points", () => {
     const s = applyMessage(emptyScene, {
       type: "scene",
+      board: "default",
       rev: 1,
       elements: [
         a,
