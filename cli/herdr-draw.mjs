@@ -6,10 +6,10 @@ import { pathToFileURL } from "node:url";
 import { cac } from "cac";
 import { logger } from "../src/log/log.mjs";
 import { parse } from "./lib/args.mjs";
-import { boardHelp, bridgeEndpoint, HELP as CANVAS_HELP, canvas } from "./lib/canvas.mjs";
-import { HELP as INSTALL_HELP, setup, version } from "./lib/install.mjs";
-import { HELP as LOGS_HELP, logs } from "./lib/logs.mjs";
-import { HELP as MERMAID_HELP, mermaid } from "./lib/mermaid.mjs";
+import { bridgeEndpoint, canvas } from "./lib/canvas.mjs";
+import { setup, version } from "./lib/install.mjs";
+import { logs } from "./lib/logs.mjs";
+import { mermaid } from "./lib/mermaid.mjs";
 
 export const HELP = `herdr-draw: pinned Mermaid diagrams and a live Excalidraw canvas for the Herdr terminal you run in.
 
@@ -24,7 +24,7 @@ usage: herdr-draw <group> <command> [options]
   doctor            check the setup here and on synced machines
   logs              recent log lines from every part, here or on a machine (herdr-draw logs help)
   bridge endpoint   internal: the main machine runs this here over hc to reach this machine's boards
-  help, -h, --help  this text; every group and command also takes help, -h or --help
+  help, -h, --help  this overview; details per group: herdr-draw <group> help (or -h, --help after any command)
   -V, --version     print the version
 
 exit codes: 0 ok, 1 error, 2 usage (unknown command, option or argument), 3 board unreachable (canvas board commands)
@@ -43,9 +43,8 @@ environment:
   HERDR_DRAW_HOME       where the clone lives (default ~/.local/share/herdr-draw)
 `;
 
-/** The full help: this, then every group's, with the board commands' usages (src/board/cli.ts) after the canvas's. */
-const help = (env) =>
-  process.stdout.write(`${HELP}\n${MERMAID_HELP}\n${CANVAS_HELP}\n${boardHelp(env)}\n${INSTALL_HELP}\n${LOGS_HELP}`);
+/** The overview only: each group's details are behind `herdr-draw <group> help`. */
+const help = () => process.stdout.write(HELP);
 
 /** The groups (see lib/args.mjs: each parses its own argv) and the global options. */
 export function program() {

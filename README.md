@@ -74,9 +74,10 @@ warning when the fitted text would be under 70% size.
 
 ## CLI
 
-`herdr-draw help` prints everything below in full: every command, flag and alias, the board commands' usages and the
-environment variables. Every group and command also takes `help`, `-h` or `--help` (`herdr-draw canvas help query`).
-Usage errors (unknown command, option or argument) exit 2.
+Help is layered: `herdr-draw help` is a short overview (groups, aliases, exit codes, environment variables);
+`herdr-draw <group> help` has that group's commands and flags; `herdr-draw canvas help` lists the board commands'
+usages and `herdr-draw canvas help <command>` (or `<command> --help`) shows one. Usage errors (unknown command, option
+or argument) exit 2.
 
 ```
 herdr-draw mermaid add [--tab NAME] [--title T] [file]   bare mermaid or markdown with a ```mermaid fence; stdin if no file

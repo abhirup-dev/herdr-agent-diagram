@@ -48,16 +48,13 @@ describe("herdr-draw router", () => {
     for (const flag of ["--version", "-V"]) expect(run([flag]).out).toBe(`${version}\n`);
   });
 
-  test("help covers every group, option, board command and environment variable", () => {
-    const help = run(["help"]);
-    expect(help.code).toBe(0);
+  test("help is lazy: an overview, then each group's details on request", () => {
+    const top = run(["help"]);
+    expect(top.code).toBe(0);
     for (const g of ["mermaid", "canvas", "open", "install", "uninstall", "doctor", "logs", "bridge endpoint"])
-      expect(help.out).toContain(`  ${g} `);
-    const programs = [program(), mermaidProgram(), canvasProgram(), installProgram(), logsProgram()];
-    for (const opt of programs.flatMap((p) => [p.globalCommand, ...p.commands]).flatMap((c) => c.options))
-      for (const flag of opt.rawName.split(/[ ,]+/).filter((t: string) => t.startsWith("-")))
-        expect(help.out).toContain(flag);
-    for (const c of Object.values(COMMANDS)) expect(help.out).toContain(`  ${c.usage}\n`);
+      expect(top.out).toContain(`  ${g} `);
+    expect(top.out).not.toContain("herdr-draw mermaid:");
+    expect(top.out).not.toContain("Board commands");
     for (const v of [
       "HC_TERMINAL_ID",
       "HERDR_APP_HOME",
@@ -70,7 +67,16 @@ describe("herdr-draw router", () => {
       "HERDR_DRAW_HOME",
       "HERDR_DRAW_REPO",
     ])
-      expect(help.out).toContain(`  ${v} `);
+      expect(top.out).toContain(`  ${v} `);
+    // Between them, the overview and the group helps cover every option and board command.
+    const all = [top, ...["mermaid", "canvas", "install", "logs"].map((g) => run([g, "help"]))]
+      .map((r) => r.out)
+      .join("\n");
+    const programs = [program(), mermaidProgram(), canvasProgram(), installProgram(), logsProgram()];
+    for (const opt of programs.flatMap((p) => [p.globalCommand, ...p.commands]).flatMap((c) => c.options))
+      for (const flag of opt.rawName.split(/[ ,]+/).filter((t: string) => t.startsWith("-")))
+        expect(all).toContain(flag);
+    for (const c of Object.values(COMMANDS)) expect(all).toContain(`  ${c.usage}\n`);
     // the same help from any group, and per board command
     expect(run(["mermaid", "add", "--help"]).out).toStartWith("herdr-draw mermaid:");
     expect(run(["canvas", "help"]).out).toContain("  clear --yes\n");
