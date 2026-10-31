@@ -57,6 +57,12 @@ Decided 2026-10-31. One package and CLI, `herdr-draw`, for both kinds of visual:
    `install.sh`.
 6. **Docs and upstream.** README; Herdr feature-request drafts: header contributions from mods, pinch.
 
+7. **Agents on other machines.** Each machine runs its own backend (board servers, sidecar, Mermaid
+   pin state) beside its agents; the local app runs the frontend (the herdr-draw mod) and a relay in
+   the local sidecar. Herdr has no port forwarding, so the bridge is `hc exec --on <machine> -i`, a
+   stdin/stdout pipe over Herdr's own machine link. Ids are machine-qualified (`vpsme/t1f`), and E2's
+   protocol should use them from the start so local and remote share one code path.
+
 ## Tracking
 
 Beads (prefix `hd`): one epic, a child epic per step, issues under each. `bd ready` lists what can start.
