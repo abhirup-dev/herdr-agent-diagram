@@ -5,38 +5,25 @@ description: Use inside the Herdr desktop app to draw, lay out, edit or refine a
 
 # herdr-canvas-mod
 
-In Herdr, the Excalidraw canvas is a native pane beside your terminal, and you have your
-own board on it. You draw with `herdr-draw canvas <command>`; the user sees each change
-as you make it and can edit the same scene.
+The canvas is a native Herdr pane beside your terminal, showing your own board. You draw with
+`herdr-draw canvas <command>`; the user sees each change live and can edit the same scene.
 
-1. Before the first drawing in a session, run `herdr-draw canvas open` once. It starts
-   what it needs and splits a canvas pane to the right of your terminal (each run adds
-   another pane). On a machine without the Herdr app, it asks the app on the user's
-   machine to open it; nothing else changes for you.
-2. Draw with the board commands: `add`, `apply`, `update`, `delete`, `get`, `query`,
-   `describe`, `screenshot`, `export`, `import`, `snapshot`, `arrange`, `clear --yes`.
-   How to lay out and refine a diagram, the element format and every flag:
-   [references/drawing.md](references/drawing.md) (read it before your first diagram)
-   and [references/cheatsheet.md](references/cheatsheet.md).
-3. The user edits the same scene; read their changes back with `describe` or `export`
-   before you change something they may have touched.
-4. Don't ask the user to open anything in a browser: `herdr-draw canvas screenshot`
-   works without one.
-5. **Keep it narrow.** The canvas pane is usually tall and narrow (a split beside
-   your terminal), so lay diagrams out top to bottom: aim for a scene taller than
-   it is wide, at most about 3-4 boxes per row, and wrap long chains onto the next
-   row instead of stretching them sideways. Go wide only when the user asks for it.
-6. **Check the canvas screenshot before you say you're done**: labels must not
-   cross other lines or boxes, arrows must be longer than their labels, and the
-   whole scene should read at the pane's width.
+1. **Open once per session:** `herdr-draw canvas open` starts what it needs and splits a canvas pane
+   to your right (each run adds another pane, so don't repeat it). On a machine without the Herdr
+   app it asks the app on the user's machine to open it; nothing else changes for you.
+2. **Draw** with `add`, `apply`, `update`, `delete`; read with `describe`, `get`, `query`; check with
+   `screenshot`. Read [references/drawing.md](references/drawing.md) before your first diagram.
+   `herdr-draw canvas help [command]` has every command and flag.
+3. **Read before you edit:** the user may have changed the scene. Run `describe` first.
+4. **Keep it narrow:** the pane is usually tall and narrow. Lay out top to bottom, at most 3-4 boxes
+   per row, and wrap long chains onto the next row. Go wide only when the user asks.
+5. **Screenshot before you say you're done:** `herdr-draw canvas screenshot` prints a PNG path. Look at
+   it: no cut-off text, no labels crossing lines or boxes, arrows longer than their labels.
+   Never ask the user to open a browser.
 
-Your board is saved to `~/.local/state/herdr-draw/boards/<your terminal id>.excalidraw` a second
-after each change (on the machine you run on). If the canvas comes back empty after a restart,
-bring it back with `herdr-draw canvas import <that file> --replace`.
+Your board is saved to `~/.local/state/herdr-draw/boards/<your terminal id>.excalidraw` a second after
+each change. If the canvas comes back empty, restore it with
+`herdr-draw canvas import <that file> --replace`.
 
-For a read-only diagram that should stay pinned (not edited together), use the
-herdr-diagram skill (`herdr-draw mermaid`) instead. Converting Mermaid onto the canvas
-isn't supported yet: draw the elements directly.
-
-The references are adapted from mcp-excalidraw-server's excalidraw-skill (MIT, see
-src/board/LICENSE).
+For a read-only diagram that stays pinned, use the herdr-diagram skill (`herdr-draw mermaid`).
+Mermaid can't be converted onto the canvas: draw the elements directly.

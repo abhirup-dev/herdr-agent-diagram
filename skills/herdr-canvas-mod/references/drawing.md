@@ -1,230 +1,83 @@
-
-
 # Drawing on the canvas
 
-Adapted from mcp-excalidraw-server's excalidraw-skill (MIT). Every command below runs as
-`herdr-draw canvas <command>` and acts on this terminal's own board.
+Every command runs as `herdr-draw canvas <command>` on this terminal's board. Results are JSON on stdout
+(`describe` is plain text). Exit codes: 0 ok, 1 error, 2 usage, 3 board unreachable.
+Adapted from mcp-excalidraw-server's excalidraw-skill (MIT, src/board/LICENSE).
 
-### CLI Quick Reference
+## Elements
 
-Results are JSON on stdout — except `describe` (plain text) and raw-content output when `--out` is omitted (`export` scene JSON, `screenshot --format svg`). Diagnostics on stderr. Exit codes: 0 ok, 1 error, 2 usage, 3 canvas unreachable.
+Send a JSON array to `add` (a file, or stdin), or a patch to `apply`:
+`{"create":[...],"update":[{"id":"a","set":{...}}],"delete":["id"]}`.
 
-| Task | Command |
-|------|---------|
-| Inspect the sidecar | `status` |
-| Create elements (batch) | `add elements.json` or `echo '[...]' \| add` or `add --one '{...}'` |
-| Multi-op patch in one call | `apply patch.json` — `{"create":[...],"update":[{"id":"a","set":{...}}],"delete":[...]}` |
-| Read one / query many | `get <id>`, `query [--type t] [--bbox x0,y0,x1,y1] [--filter k=v] [--filter-json '{...}']` |
-| Update / delete | `update <id> --set '{...}'`, `delete <id> [...]` |
-| Understand the scene | `describe` (plain-text summary: ids, positions, labels, connections) |
-| See the scene | `screenshot [--out f.png]` (PNG without `--out` → temp file path in JSON; SVG without `--out` → raw SVG) |
-| Layout operations | `arrange align\|distribute\|group\|ungroup\|lock\|unlock\|duplicate --ids a,b,c [--to left\|horizontal\|...]` |
-| Scene files | `export [--out scene.excalidraw]`, `import [scene.excalidraw|-] [--replace]` (plain .excalidraw JSON only) |
-| Snapshots | `snapshot save\|list\|restore <name>` |
-| Wipe canvas | `clear --yes` |
-| Usage of any command | `herdr-draw canvas help [command]` or `<command> --help` |
+- Give every element an `id` you choose (`"auth-svc"`), so you can update it later.
+- `"text": "Label"` on a shape becomes its label.
+- Arrows: `"startElementId"` / `"endElementId"` bind them to shapes; they route to the edges and follow
+  when the shapes move.
+- `fontFamily` takes a name (`"excalifont"`, `"helvetica"`, `"cascadia"`) or `"1"`-`"8"`.
 
-### Element Format
+```bash
+herdr-draw canvas add <<'EOF'
+[
+  {"id": "web", "type": "rectangle", "x": 100, "y": 0, "width": 180, "height": 60, "text": "Web app"},
+  {"id": "api", "type": "rectangle", "x": 100, "y": 160, "width": 180, "height": 60, "text": "API"},
+  {"id": "db", "type": "rectangle", "x": 100, "y": 320, "width": 180, "height": 60, "text": "Postgres"},
+  {"type": "arrow", "x": 0, "y": 0, "startElementId": "web", "endElementId": "api"},
+  {"type": "arrow", "x": 0, "y": 0, "startElementId": "api", "endElementId": "db"}
+]
+EOF
+```
 
-The CLI accepts an agent-friendly format and normalizes it automatically:
+## Layout
 
-- **Labels**: put `"text": "My Label"` on any shape — converted to Excalidraw's bound-label format for you.
-- **Arrow binding**: `"startElementId": "a"` / `"endElementId": "b"` — arrows auto-route to element edges.
-- **fontFamily**: pass a string name (`"helvetica"`, `"cascadia"`, `"excalifont"`, ...) or string number `"1"`–`"8"`.
-- **points**: both `[[x,y], ...]` tuples and `[{"x":..,"y":..}]` objects are accepted.
-- **Patch updates**: in `apply`, update entries can use either direct fields (`{"id":"a","x":120}`) or a `set` object (`{"id":"a","set":{"x":120}}`). Do not mix both forms in one update entry.
+(0, 0) is the top left; x grows right, y grows down. Plan the grid before writing JSON.
 
+- Rows 80-120px apart; siblings at least 40px apart, 120px+ when the arrow between them has a label.
+- Shape width `max(160, label characters × 12)`; height 60 for one line, 80 for two.
+- Fonts at least 16 (titles 20).
+- Zones (background rectangles): 50px padding around what they hold, `"strokeStyle": "dashed"`.
+- `"fillStyle": "solid"` gives flat fills (the default is sketchy hachure). Stroke/fill pairs:
+  `#1971c2`/`#a5d8ff` blue, `#2f9e44`/`#b2f2bb` green, `#e03131`/`#ffc9c9` red, `#e8590c`/`#ffd8a8`
+  orange, `#9c36b5`/`#eebefa` purple, `#0c8599`/`#99e9f2` cyan, `#868e96`/`#e9ecef` gray.
+- Order: zones, shapes, arrows, annotations, then refine.
 
----
+Avoid these:
 
-## Coordinate System
+1. **No label on a zone.** It is centred over the boxes inside. Use a separate `text` element at the
+   zone's top-left corner instead.
+2. **No arrows across zones** through other elements. Keep arrows within a tier or zone, or route
+   them along the edge.
+3. **Few arrow labels**, 12 characters at most, and only when the label carries real information
+   (a protocol, a port, a direction). A label needs an arrow longer than itself.
 
-The canvas uses a 2D coordinate grid: **(0, 0) is the origin**, **x increases rightward**, **y increases downward**. Plan your layout before writing any JSON.
+To route around an obstacle, add waypoints:
 
-**General spacing guidelines:**
-- Vertical spacing between tiers: 80–120px (enough that arrows don't crowd labels)
-- Horizontal spacing between siblings: 40–60px minimum; give labeled arrows 120px+
-- Shape width: `max(160, labelCharCount * 12)` to keep the label on one line
-- Shape height: 60px single-line, 80px two-line labels
-- Background/zone padding: 50px on all sides around contained elements
-
-**Styling for a professional look:**
-- `"fillStyle": "solid"` on shapes gives crisp flat fills — the default is a sketchy hachure pattern
-- Pair pastel `backgroundColor` fills with their darker `strokeColor` (palette in the cheatsheet)
-- `"strokeStyle": "dashed"` on zone borders and async arrows reads as "boundary / background"
-
----
-
-## Layout Anti-Patterns (Critical for Complex Diagrams)
-
-These are the most common mistakes that produce unreadable diagrams. Avoid all of them.
-
-### 1. Do NOT use `label.text` (or `text`) on large background zone rectangles
-
-When you put a label on a background rectangle, Excalidraw creates a bound text element centered in the middle of that shape — right where your service boxes will be placed. The text overlaps everything inside the zone and cannot be repositioned.
-
-**Wrong:**
 ```json
-{"id": "vpc-zone", "type": "rectangle", "x": 50, "y": 50, "width": 800, "height": 400, "text": "VPC (10.0.0.0/16)"}
+{"type": "arrow", "x": 100, "y": 100, "points": [[0, 0], [50, -40], [200, 0]], "roundness": {"type": 2}}
+{"type": "arrow", "x": 100, "y": 100, "points": [[0, 0], [0, -50], [200, -50], [200, 0]], "elbowed": true}
 ```
 
-**Right — use a free-standing text element anchored at the top of the zone:**
-```json
-{"id": "vpc-zone", "type": "rectangle", "x": 50, "y": 50, "width": 800, "height": 400, "backgroundColor": "#e3f2fd"},
-{"id": "vpc-label", "type": "text", "x": 70, "y": 60, "width": 300, "height": 30, "text": "VPC (10.0.0.0/16)", "fontSize": 18}
-```
+Curved arrows suit fan-outs; elbowed arrows suit going up, across and down to a side column.
 
-The free-standing text element sits at the top corner of the zone and doesn't interfere with elements placed inside.
+## Check every batch
 
-### 2. Avoid cross-zone arrows in complex diagrams
+After each `add` or `apply`, run `screenshot` and look at the PNG:
 
-An arrow from an element in one layout zone to an element in a distant zone will draw a long diagonal line crossing through everything in between. In a multi-zone infra diagram this produces an unreadable tangle of spaghetti.
+1. All text visible (else widen or heighten the shape).
+2. No shapes overlapping; zones contain their children with padding.
+3. No arrow through an unrelated shape; no arrow label on a shape.
+4. At least 40px between elements; the whole scene readable at the pane's narrow width.
 
-**Design rule:** Keep arrows within the same zone or tier. To show cross-zone relationships, use annotation text or separate the zones so their edges are adjacent (no elements between them), and route the arrow along the edge.
+If something is wrong, say what you see, fix it, and screenshot again before adding more.
 
-If you must connect across zones, use an elbowed arrow that travels along the perimeter — never through the middle of another zone.
+## Editing
 
-### 3. Use arrow labels sparingly
-
-Arrow labels are placed at the midpoint of the arrow. On short arrows, they overlap the shapes at both ends. On crowded diagrams, they collide with nearby elements.
-
-- Only add an arrow label when the relationship name is genuinely essential (e.g., protocol, port number, data direction).
-- If you're adding a label to every arrow, reconsider — it usually adds visual noise, not clarity.
-- Keep arrow labels to ≤ 12 characters. Prefer omitting them entirely on dense diagrams.
-
----
-
-## Quality: Why It Matters (and How to Check)
-
-Excalidraw diagrams are visual communication. If text is cut off, elements overlap, or arrows cross through unrelated shapes, the diagram becomes confusing and unprofessional — it defeats the whole purpose of drawing it. So after every batch of elements, verify before adding more.
-
-### Quality Checklist
-
-After each `add` / `apply` / `batch_create_elements`, take a screenshot and check:
-
-1. **Text truncation** — Is all label text fully visible? Truncated text means the shape is too small. Increase `width` and/or `height`.
-2. **Overlap** — Do any shapes share the same space? Background zones must fully contain children with padding.
-3. **Arrow crossing** — Do arrows cut through unrelated elements? If yes, route them around using curved or elbowed arrows (see Arrow Routing below).
-4. **Arrow-label overlap** — Arrow labels sit at the midpoint. If they overlap a shape, shorten the label or adjust the arrow path.
-5. **Spacing** — At least 40px gap between elements. Cramped layouts are hard to read.
-6. **Readability** — Font size ≥ 16 for body text, ≥ 20 for titles.
-7. **Zone label placement** — If you used `text`/`label.text` on a background zone rectangle, the zone label will be centered in the middle of the zone, overlapping everything inside. Fix: delete the bound text element and add a free-standing text element at the top of the zone instead (see Layout Anti-Patterns above).
-
-If you find any issue: **stop, fix it, re-screenshot, then continue.** Say "I see [issue], fixing it" rather than glossing over problems. Only proceed once all checks pass.
-
----
-
-## Workflow: Drawing a New Diagram
-
-### Steps
-
-1. Plan your coordinate grid — map out tiers and x-positions before writing JSON.
-2. Optional fresh start: `herdr-draw canvas clear --yes`
-3. Create shapes and arrows in one call. Custom `id` fields (e.g. `"id": "auth-svc"`) make later updates easy:
-   ```bash
-   herdr-draw canvas add - <<'EOF'
-   [
-     {"id": "lb", "type": "rectangle", "x": 300, "y": 50, "width": 180, "height": 60, "text": "Load Balancer"},
-     {"id": "svc-a", "type": "rectangle", "x": 100, "y": 200, "width": 160, "height": 60, "text": "Web Server 1"},
-     {"id": "svc-b", "type": "rectangle", "x": 450, "y": 200, "width": 160, "height": 60, "text": "Web Server 2"},
-     {"id": "db", "type": "rectangle", "x": 275, "y": 350, "width": 210, "height": 60, "text": "PostgreSQL"},
-     {"type": "arrow", "x": 0, "y": 0, "startElementId": "lb", "endElementId": "svc-a"},
-     {"type": "arrow", "x": 0, "y": 0, "startElementId": "lb", "endElementId": "svc-b"},
-     {"type": "arrow", "x": 0, "y": 0, "startElementId": "svc-a", "endElementId": "db"},
-     {"type": "arrow", "x": 0, "y": 0, "startElementId": "svc-b", "endElementId": "db"}
-   ]
-   EOF
-   ```
-   (The `-` positional is optional — with no file argument, `add` reads stdin.)
-4. Set shape widths using `max(160, labelLength * 12)`.
-5. `screenshot` → view the file → run the Quality Checklist → fix issues before the next batch.
-
----
-
-## Arrow Routing — Avoid Overlaps
-
-Straight arrows can cross through elements in complex diagrams. Use curved or elbowed arrows when needed:
-
-**Curved arrows** (smooth arc over obstacles):
-```json
-{
-  "type": "arrow", "x": 100, "y": 100,
-  "points": [[0, 0], [50, -40], [200, 0]],
-  "roundness": {"type": 2}
-}
-```
-The intermediate waypoint `[50, -40]` lifts the arrow upward. `roundness: {type: 2}` makes it smooth.
-
-**Elbowed arrows** (right-angle / L-shaped routing):
-```json
-{
-  "type": "arrow", "x": 100, "y": 100,
-  "points": [[0, 0], [0, -50], [200, -50], [200, 0]],
-  "elbowed": true
-}
-```
-
-**When to use which:**
-- Fan-out (one source → many targets): curved arrows with waypoints spread to avoid overlapping
-- Cross-lane (connecting to side panels): elbowed arrows that go up, then across, then down
-- Long horizontal connections: curved arrows with a slight vertical offset
-
-**Rule:** If an arrow would pass through an unrelated shape, add a waypoint to route around it.
-
----
-
-## Workflow: Iterative Refinement
-
-Pairing `describe` with `screenshot` is what makes this skill powerful.
-
-- **`describe`** → structured text: element IDs, types, positions, labels, connections. Use it to know *what's on the canvas* before making programmatic updates (find IDs, understand bounding boxes).
-- **`screenshot`** → PNG of the actual rendered canvas. Use it for *visual quality verification* — it shows exactly what the user sees, including truncation, overlap, and arrow routing. The CLI prints the saved file path as JSON; read/view that file.
-
-**Feedback loop:**
-```
-add elements
-  → screenshot → view → "text truncated on auth-svc"
-  → update auth-svc --set '{"width": 220}' → screenshot → "overlap between auth-svc and rate-limiter"
-  → update rate-limiter --set '{"x": 520}' → screenshot → "all checks pass"
-  → proceed
-```
-
-## Workflow: Refine an Existing Diagram
-
-1. `describe` to understand current state — note element IDs and positions.
-2. Identify elements by `id` or label text (not by x/y coordinates — they change).
-3. `update <id> --set '{...}'` to resize/recolor/move; `delete <id>` to remove; or bundle everything in one `apply` patch. **Bound arrows re-route automatically when you move or resize their endpoints** — no need to delete and recreate them.
-4. `screenshot` to confirm the change looks right.
-5. If updates fail: check the ID exists with `get <id>`; unlock with `arrange unlock --ids <id>` if locked.
-
-## Workflow: File I/O
-
-- Export scene: `export --out diagram.excalidraw` (no `--out` → JSON to stdout)
-- Import scene: `import diagram.excalidraw` (append) or `import diagram.excalidraw --replace`
-- Image: `screenshot --out diagram.png` / `screenshot --format svg --out diagram.svg`
-
-This is how diagrams live in a repo: commit the `.excalidraw` file, and re-`import` + edit + `export` it when the architecture changes.
-
-Obsidian's `.excalidraw.md` format is not supported: `export` refuses a `.md` out path. In an Obsidian vault, export
-plain `.excalidraw` (the Excalidraw plugin opens it in compatibility mode).
-
-## Workflow: Snapshots
-
-1. `snapshot save <name>` before risky changes.
-2. Make changes, evaluate with `describe` / `screenshot`.
-3. `snapshot restore <name>` to roll back if needed. `snapshot list` shows what's saved.
-
-## Workflow: Duplication
-
-`arrange duplicate --ids a,b --offset 40,40` (default offset 20,20). Useful for repeated patterns or copying layouts.
-
-## Error Recovery
-
-- **Elements not appearing?** Check `describe`: they may be off-screen. The user can fit the canvas to the scene with its zoom buttons.
-- **Arrow not connecting?** Verify element IDs with `get <id>`. Make sure `startElementId`/`endElementId` match existing element IDs.
-- **Canvas in a bad state?** `snapshot save` first, then `clear --yes` and rebuild. Or `snapshot restore` to go back.
-- **Element won't update?** It may be locked — `arrange unlock --ids <id>` first.
-- **Duplicate text elements / element count doubling?** The frontend auto-sync timer periodically writes the full Excalidraw scene back to the server. Excalidraw internally generates a bound text element for every shape with a label; clearing and re-sending elements can re-inject cached bound texts. Clean up: `query --type text` to find elements with a `containerId`, `delete` the unwanted ones, wait a few seconds for auto-sync to settle. The safest prevention: **never put labels on background zone rectangles** — use free-standing text elements.
-
----
-
+- `describe` lists ids, positions, labels and connections. Find elements by id or label, not
+  coordinates.
+- `update <id> --set '{"width": 220}'` moves, resizes or recolours one element; bound arrows follow.
+  Use `apply` for many changes at once.
+- An update that fails: check the id with `get <id>`. A locked element needs `arrange unlock --ids <id>`.
+- `arrange align|distribute|group|lock|unlock|duplicate --ids a,b,c` tidies layouts.
+- `snapshot save <name>` before a risky change, `snapshot restore <name>` to go back.
+- Files: `export --out diagram.excalidraw`, `import diagram.excalidraw [--replace]`,
+  `screenshot --out diagram.png` (or `--format svg`).
+- Nothing showing? It may be off screen: check positions with `describe`.
