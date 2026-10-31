@@ -501,7 +501,8 @@ export default class ExcalCanvas extends View {
     this.pendingCx = cx;
     this.ui = theme();
     this.dark = isDark(this.ui.background ?? "#ffffff");
-    this.backdrop = withAlpha(this.ui.background ?? "#ffffff", terminalOpacity());
+    // Terminals end up layering their background twice (measured: 0.7 shows as ~0.91), so match that.
+    this.backdrop = withAlpha(this.ui.background ?? "#ffffff", 1 - (1 - terminalOpacity()) ** 2);
     const z = appZoom();
     const els = this.ed.elements();
     const hidden = this.ed.editing?.id;

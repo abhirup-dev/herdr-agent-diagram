@@ -25,7 +25,7 @@ const island = (): Element =>
     .border_color(c("border"))
     .on_mouse_down("left", (_e, cx) => cx.stop_propagation());
 
-const icon = (name: string, size = 18, color?: string): Element =>
+const icon = (name: string, size = 14, color?: string): Element =>
   svg(`${ICONS}/${name}.svg`)
     .size(size)
     .flex_none()
@@ -38,8 +38,8 @@ function button(
   opts: { w?: number; disabled?: boolean } = {},
 ): Element {
   const b = div()
-    .h(32)
-    .w(opts.w ?? 32)
+    .h(26)
+    .w(opts.w ?? 26)
     .flex()
     .items_center()
     .justify_center()
@@ -74,8 +74,8 @@ export function toolbar(tool: Tool, onTool: (t: Tool) => void): Element {
     const active = t === tool;
     const cell = div()
       .relative()
-      .child(button(icon(t, 18, active ? c("accent") : undefined), active, () => onTool(t), { w: 36 }))
-      .child(div().absolute().right(3).bottom(1).text_size(9).text_color(c("muted")).child(key));
+      .child(button(icon(t, 14, active ? c("accent") : undefined), active, () => onTool(t), { w: 30 }))
+      .child(div().absolute().right(2).bottom(0).text_size(7.5).text_color(c("muted")).child(key));
     return i === 1 ? [div().w(1).h(20).mx(4).bg(c("border")), cell] : [cell];
   });
   return (
@@ -88,7 +88,7 @@ export function toolbar(tool: Tool, onTool: (t: Tool) => void): Element {
       .justify_center()
       .px(8)
       // Wraps in a narrow pane (the canvas beside an agent) instead of clipping tools.
-      .child(island().flex().flex_wrap().justify_center().items_center().gap(2).p(4).children(items))
+      .child(island().flex().flex_wrap().justify_center().items_center().gap(1).p(3).children(items))
   );
 }
 
@@ -295,11 +295,11 @@ export function panel(p: PanelProps): Element {
     parts.push(
       section(
         "Actions",
-        row(button(icon("copy", 16), false, p.onDuplicate), button(icon("trash", 16, "#e03131"), false, p.onDelete)),
+        row(button(icon("copy", 13), false, p.onDuplicate), button(icon("trash", 13, "#e03131"), false, p.onDelete)),
       ),
     );
   }
-  return island().absolute().left(12).top(60).w(240).p(10).flex().flex_col().gap(10).children(parts);
+  return island().absolute().left(12).top(50).w(216).p(10).flex().flex_col().gap(10).children(parts);
 }
 
 // --- zoom and history -------------------------------------------------------------------------------------
@@ -319,7 +319,7 @@ export function footer(p: FooterProps): Element {
     .flex()
     .items_center()
     .p(2)
-    .child(button(icon("minus", 16), false, () => p.onZoom(1 / 1.1)))
+    .child(button(icon("minus", 13), false, () => p.onZoom(1 / 1.1)))
     .child(
       button(
         div()
@@ -330,12 +330,12 @@ export function footer(p: FooterProps): Element {
         { w: 52 },
       ),
     )
-    .child(button(icon("plus", 16), false, () => p.onZoom(1.1)));
+    .child(button(icon("plus", 13), false, () => p.onZoom(1.1)));
   const history = island()
     .flex()
     .items_center()
     .p(2)
-    .child(button(icon("undo", 16), false, p.onUndo, { disabled: !p.canUndo }))
-    .child(button(icon("redo", 16), false, p.onRedo, { disabled: !p.canRedo }));
+    .child(button(icon("undo", 13), false, p.onUndo, { disabled: !p.canUndo }))
+    .child(button(icon("redo", 13), false, p.onRedo, { disabled: !p.canRedo }));
   return div().absolute().left(12).bottom(12).flex().gap(8).child(zoom).child(history);
 }
