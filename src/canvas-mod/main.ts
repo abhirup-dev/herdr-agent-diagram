@@ -8,7 +8,7 @@
 // device px (scale = camera zoom x app zoom); pointer positions arrive in device px.
 import { InputState, type InputState as InputStateT, Textarea, TextareaState } from "gpui-base";
 import { type Context, div, type Element, type FocusHandle, View } from "gpui-kit";
-import { layout, settings, theme } from "herdr";
+import { layout, props as paneProps, settings, theme } from "herdr";
 import { WebSocket, type WebSocketSocket } from "websocket";
 import { type Camera, fit, pan, zoomAt } from "../canvas/camera.ts";
 import { darkColor, isDark } from "../canvas/color.ts";
@@ -87,7 +87,8 @@ export default class ExcalCanvas extends View {
   private text: { readonly id: string; readonly state: TextareaState } | null = null;
 
   override init(props: unknown, cx: Context): void {
-    const p = (props ?? {}) as { board?: unknown; port?: unknown };
+    // pane.split {mod, props: {board, port}}: Herdr hands a mod pane its props through herdr's props().
+    const p = { ...(paneProps() ?? {}), ...((props ?? {}) as object) } as { board?: unknown; port?: unknown };
     if (typeof p.board === "string" && p.board) this.board = p.board;
     if (typeof p.port === "number") this.port = p.port;
     this.focus = cx.focus_handle();

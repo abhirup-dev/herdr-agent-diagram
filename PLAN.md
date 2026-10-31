@@ -12,7 +12,7 @@ Decided 2026-10-31. One package and CLI, `herdr-draw`, for both kinds of visual:
 | Layout | Never edit the user's layout by default. Floating window without layout changes; header badge only in an opt-in layout we ship (like `win98`) |
 | Mermaid popup | Keep it, beside the new split and window views |
 | Go to agent | Every hosted view shows a "Go to agent" button that focuses the agent's pane (`pane.focus {terminal}`); the badge stays for the opt-in layout |
-| Processes | One shared sidecar for all boards. Board servers (`mcp-excalidraw-server`, one scene per process, ~58 MB each) run as Bun Workers inside the sidecar process if the spike holds up, else as separate processes started on demand and stopped when idle |
+| Processes | One sidecar process per machine owns every board in memory (src/board, trimmed from `mcp-excalidraw-server` 2.1.2): REST at `/b/<board>/api`, the mod websocket on the same port. Measured (scripts/board-rss.ts): 154 / 163 / 170 MB RSS for 1 / 5 / 10 boards, against ~281 MB for one board before (server 142 + sidecar 139) and ~142 MB per extra board server |
 
 ## Herdr facts behind them (from ~/.config/herdr-app/AGENTS.md)
 
