@@ -1,1 +1,3 @@
 node_modules/
+scratch/*/gpui-kit.d.ts
+scratch/*/herdr.d.ts
