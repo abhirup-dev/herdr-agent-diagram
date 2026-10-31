@@ -8,19 +8,24 @@
 // device px (scale = camera zoom x app zoom); pointer positions arrive in device px.
 import { InputState, type InputState as InputStateT, Textarea, TextareaState } from "gpui-base";
 import { type Context, div, type Element, type FocusHandle, View } from "gpui-kit";
-import { layout, settings, theme } from "herdr";
+import { layout, props as paneProps, settings, theme } from "herdr";
 import { WebSocket, type WebSocketSocket } from "websocket";
 import { type Camera, fit, pan, zoomAt } from "../canvas/camera.ts";
 import { darkColor, isDark } from "../canvas/color.ts";
 import { elementBounds, HANDLES, handlePoint, isShapeTool, pointHandles, simplePaints } from "../canvas/edit.ts";
 import { Editor, type Mods } from "../canvas/editor.ts";
-import { type ClientMessage, parseServerMessage, type ServerMessage, SIDECAR_PORT } from "../canvas/protocol.ts";
+import {
+  type ClientMessage,
+  DEFAULT_BOARD,
+  parseServerMessage,
+  type ServerMessage,
+  SIDECAR_PORT,
+} from "../canvas/protocol.ts";
 import { applyMessage, emptyScene, type Scene, sceneBounds } from "../canvas/scene.ts";
 import type { CanvasElement, Paint, TextElement } from "../canvas/types.ts";
 import { type BuiltElement, buildElement, type Hex, hex } from "./paths.ts";
 import { footer, panel, toolbar } from "./ui.ts";
 
-const SIDECAR_URL = `ws://127.0.0.1:${SIDECAR_PORT}`;
 const HIT_PX = 6;
 const PREVIEW_TIMEOUT_MS = 400;
 
@@ -69,6 +74,9 @@ export default class ExcalCanvas extends View {
   private previewInFlight: { req: number; at: number } | null = null;
   private nextReq = 1;
   private link: Link = "connecting";
+  /** The board this pane shows (pane props `board`, else "default") and the sidecar's port (props `port`). */
+  private board = DEFAULT_BOARD;
+  private port = SIDECAR_PORT;
   private ws: WebSocketSocket | null = null;
   private history = { canUndo: false, canRedo: false };
   private panning: { x: number; y: number; cam: Camera } | null = null;
@@ -78,7 +86,11 @@ export default class ExcalCanvas extends View {
   private hexInput: InputStateT | null = null;
   private text: { readonly id: string; readonly state: TextareaState } | null = null;
 
-  override init(_props: unknown, cx: Context): void {
+  override init(props: unknown, cx: Context): void {
+    // pane.split {mod, props: {board, port}}: Herdr hands a mod pane its props through herdr's props().
+    const p = { ...(paneProps() ?? {}), ...((props ?? {}) as object) } as { board?: unknown; port?: unknown };
+    if (typeof p.board === "string" && p.board) this.board = p.board;
+    if (typeof p.port === "number") this.port = p.port;
     this.focus = cx.focus_handle();
     const hexInput = InputState.new({ placeholder: "1e1e1e" });
     hexInput.on("submit", (_e, cx) => {
@@ -106,9 +118,10 @@ export default class ExcalCanvas extends View {
   private async follow(cx: Context): Promise<boolean> {
     let connected = false;
     try {
-      const ws = await WebSocket.connect(SIDECAR_URL);
+      const ws = await WebSocket.connect(`ws://127.0.0.1:${this.port}`);
       connected = true;
       this.ws = ws;
+      this.send({ type: "subscribe", board: this.board });
       this.link = "connected";
       cx.notify();
       for (;;) {
@@ -127,7 +140,7 @@ export default class ExcalCanvas extends View {
   /** Applies one sidecar message; true when something on screen changed. */
   private receive(raw: string, cx: Context): boolean {
     const m = parseServerMessage(raw);
-    if (!m) return false;
+    if (!m || m.board !== this.board) return false;
     if (m.type === "status") this.link = m.upstream === "connected" ? "connected" : "server down";
     else if (m.type === "history") this.history = { canUndo: m.canUndo, canRedo: m.canRedo };
     else if (m.type === "preview") this.onPreview(m, cx);
@@ -159,7 +172,7 @@ export default class ExcalCanvas extends View {
 
   /** Sends the editor's queued ops, one preview request (one in flight), and syncs the text editor. */
   private flush(cx: Context): void {
-    for (const ops of this.ed.outbox.splice(0)) this.send({ type: "ops", ops });
+    for (const ops of this.ed.outbox.splice(0)) this.send({ type: "ops", board: this.board, ops });
     this.flushPreviews();
     this.syncTextEditor(cx);
     cx.notify();
@@ -174,7 +187,7 @@ export default class ExcalCanvas extends View {
     this.ed.previews.delete(id);
     const req = this.nextReq++;
     this.previewInFlight = { req, at: now };
-    this.send({ type: "preview", req, element });
+    this.send({ type: "preview", board: this.board, req, element });
   }
 
   // --- text editing ---------------------------------------------------------------------------------------
@@ -433,8 +446,8 @@ export default class ExcalCanvas extends View {
         canRedo: this.history.canRedo,
         onZoom: (f) => this.act(() => this.zoomBy(f)),
         onResetZoom: () => this.act(() => this.zoomBy(1 / this.camera.zoom)),
-        onUndo: () => this.act(() => this.send({ type: "undo" })),
-        onRedo: () => this.act(() => this.send({ type: "redo" })),
+        onUndo: () => this.act(() => this.send({ type: "undo", board: this.board })),
+        onRedo: () => this.act(() => this.send({ type: "redo", board: this.board })),
       }),
     );
     out.push(this.statusBar());
@@ -612,8 +625,8 @@ export default class ExcalCanvas extends View {
       return true;
     }
     if (keystroke === "space") this.spaceHeld = true;
-    else if (keystroke === "cmd-z") this.send({ type: "undo" });
-    else if (keystroke === "cmd-shift-z") this.send({ type: "redo" });
+    else if (keystroke === "cmd-z") this.send({ type: "undo", board: this.board });
+    else if (keystroke === "cmd-shift-z") this.send({ type: "redo", board: this.board });
     else if (key === "+" || key === "=") this.zoomBy(1.1);
     else if (key === "-") this.zoomBy(1 / 1.1);
     else if (key === "!") {

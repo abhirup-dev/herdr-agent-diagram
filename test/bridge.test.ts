@@ -73,7 +73,7 @@ class FakeSidecar {
   sockets = new Map<string, (m: BoardServerMessage) => void>();
   connect = (board: string, onMessage: (m: BoardServerMessage) => void): BoardSocket => {
     this.sockets.set(board, onMessage);
-    queueMicrotask(() => onMessage({ type: "scene", rev: 1, elements: [el(`${board}-a`)] }));
+    queueMicrotask(() => onMessage({ type: "scene", board, rev: 1, elements: [el(`${board}-a`)] }));
     return { send: (msg) => this.ops.push({ board, msg }), close: () => this.sockets.delete(board) };
   };
 }
@@ -130,29 +130,29 @@ describe("bridge coalescing", () => {
   const ids = (msgs: readonly ServerMessage[]) => replay(msgs).order.map((e) => `${e.id}:${(e as { x: number }).x}`);
 
   test("merged patches give the same scene as applying each in order", () => {
-    const base: ServerMessage = { type: "scene", rev: 1, elements: [el("a"), el("b"), el("c")] };
+    const base: ServerMessage = { type: "scene", board: "t1", rev: 1, elements: [el("a"), el("b"), el("c")] };
     const patches: ServerMessage[] = [
-      { type: "patch", rev: 2, upsert: [el("d"), el("a", 1)], remove: ["b"] },
-      { type: "patch", rev: 3, upsert: [el("b", 2)], remove: ["c", "d"] },
-      { type: "patch", rev: 4, upsert: [el("c", 3), el("a", 4)], remove: [] },
+      { type: "patch", board: "t1", rev: 2, upsert: [el("d"), el("a", 1)], remove: ["b"] },
+      { type: "patch", board: "t1", rev: 3, upsert: [el("b", 2)], remove: ["c", "d"] },
+      { type: "patch", board: "t1", rev: 4, upsert: [el("c", 3), el("a", 4)], remove: [] },
     ];
     const c = new Coalescer();
     for (const p of patches) c.push("t1", p);
     const drained = c.drain().map((f) => f.msg as ServerMessage);
     expect(drained).toHaveLength(1);
-    expect(drained[0]).toMatchObject({ type: "patch", rev: 4 });
+    expect(drained[0]).toMatchObject({ type: "patch", board: "t1", rev: 4 });
     expect(ids([base, ...drained])).toEqual(ids([base, ...patches]));
     expect(c.empty).toBe(true);
   });
 
   test("a scene absorbs later patches; status and previews keep the latest", () => {
     const c = new Coalescer();
-    c.push("t1", { type: "patch", rev: 1, upsert: [el("z")], remove: [] });
-    c.push("t1", { type: "status", upstream: "disconnected" });
-    c.push("t1", { type: "scene", rev: 2, elements: [el("a"), el("b")] });
-    c.push("t1", { type: "patch", rev: 3, upsert: [el("c")], remove: ["a"] });
-    c.push("t1", { type: "status", upstream: "connected" });
-    c.push("t2", { type: "history", canUndo: true, canRedo: false });
+    c.push("t1", { type: "patch", board: "t1", rev: 1, upsert: [el("z")], remove: [] });
+    c.push("t1", { type: "status", board: "t1", upstream: "disconnected" });
+    c.push("t1", { type: "scene", board: "t1", rev: 2, elements: [el("a"), el("b")] });
+    c.push("t1", { type: "patch", board: "t1", rev: 3, upsert: [el("c")], remove: ["a"] });
+    c.push("t1", { type: "status", board: "t1", upstream: "connected" });
+    c.push("t2", { type: "history", board: "t1", canUndo: true, canRedo: false });
     const out = c.drain();
     expect(out.map((f) => [f.board, f.msg.type])).toEqual([
       ["t1", "scene"],
@@ -229,9 +229,9 @@ describe("bridge mux", () => {
       ["vpsme/t1f", "t1f-a"],
       ["vpsme/t2", "t2-a"],
     ]);
-    mux.send("vpsme/t2", { type: "undo" });
+    mux.send("vpsme/t2", { type: "undo", board: "t2" });
     await tick();
-    expect(sidecar.ops).toEqual([{ board: "t2", msg: { type: "undo" } }]);
+    expect(sidecar.ops).toEqual([{ board: "t2", msg: { type: "undo", board: "t2" } }]);
     mux.close();
   });
 });
@@ -250,16 +250,16 @@ describe("bridge relay", () => {
     spawned[0]?.down.end(); // the link dies
     await tick();
     expect(bridge.connected).toBe(false);
-    expect(got.at(-1)).toMatchObject({ type: "status", upstream: "disconnected" });
-    bridge.send("t1", { type: "ops", ops: [{ op: "remove", ids: ["t1-a"] }] });
-    bridge.send("t1", { type: "preview", req: 1, element: el("p") }); // dropped while down
+    expect(got.at(-1)).toMatchObject({ type: "status", board: "t1", upstream: "disconnected" });
+    bridge.send("t1", { type: "ops", board: "t1", ops: [{ op: "remove", ids: ["t1-a"] }] });
+    bridge.send("t1", { type: "preview", board: "t1", req: 1, element: el("p") }); // dropped while down
     await clock.advance(499);
     expect(spawned).toHaveLength(1);
     await clock.advance(1);
     expect(spawned).toHaveLength(2);
     await tick();
     expect(bridge.connected).toBe(true);
-    expect(got.at(-1)).toMatchObject({ type: "scene", rev: 1 });
+    expect(got.at(-1)).toMatchObject({ type: "scene", board: "t1", rev: 1 });
     expect(sidecar.ops.map((o) => o.msg.type)).toEqual(["ops"]);
     bridge.close();
   });
@@ -329,12 +329,12 @@ describe("bridge heartbeat and backpressure", () => {
     await tick();
     await tick();
     const emit = sidecar.sockets.get("t1");
-    for (let i = 2; i < 50; i++) emit?.({ type: "patch", rev: i, upsert: [el(`e${i}`)], remove: [] });
+    for (let i = 2; i < 50; i++) emit?.({ type: "patch", board: "t1", rev: i, upsert: [el(`e${i}`)], remove: [] });
     release();
     await tick();
     expect(written).toHaveLength(2); // the first scene, then one merged patch
     const merged = parseDownFrame(written[1]?.trim() ?? "");
-    expect(merged).toMatchObject({ kind: "board", board: "t1", msg: { type: "patch", rev: 49 } });
+    expect(merged).toMatchObject({ kind: "board", board: "t1", msg: { type: "patch", board: "t1", rev: 49 } });
     up.end();
   });
 });

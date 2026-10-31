@@ -4,13 +4,22 @@
     "src/canvas-mod/main.ts",
     "src/sidecar/main.ts",
     "src/bridge/endpoint.ts",
+    "src/board/cli.ts",
     "bin/*.mjs",
     "scripts/*.ts",
     "mods/*/main.js",
     "test/**/*.test.ts"
   ],
-  "project": ["src/**/*.ts", "bin/**/*.mjs", "scripts/**/*.ts", "mods/**/*.js", "test/**/*.ts"],
+  "project": [
+    "src/**/*.ts",
+    "src/board/upstream/**/*.{js,mjs}",
+    "bin/**/*.mjs",
+    "scripts/**/*.ts",
+    "mods/**/*.js",
+    "test/**/*.ts"
+  ],
   "ignoreDependencies": ["gpui-kit", "gpui-base", "herdr", "websocket", "@swc/core"],
+  "ignoreIssues": { "src/board/upstream/**": ["exports", "unresolved"] },
   "ignoreBinaries": ["herdr-app"],
   "ignoreExportsUsedInFile": true
 }

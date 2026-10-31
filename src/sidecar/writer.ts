@@ -1,10 +1,10 @@
-// Applies the mod's op batches to mcp-excalidraw-server and keeps undo history. Inverses are computed from
+// Applies the mod's op batches to a board and keeps undo history. Inverses are computed from
 // the RAW server elements (which may be agent shorthand), not from the converted ones the mod sees, so undo
 // restores exactly what was there. Pure apart from the injected REST client, so it is unit-tested.
 import type { ElementFields, Op } from "../canvas/protocol.ts";
-import type { RawElement } from "./mirror.ts";
+import type { RawElement } from "./diff.ts";
 
-/** The server's REST API. create/update resolve to the stored element. */
+/** The board's element API. create/update resolve to the stored element. */
 export interface Rest {
   create(element: ElementFields): Promise<RawElement>;
   update(id: string, fields: ElementFields): Promise<RawElement>;
@@ -12,10 +12,10 @@ export interface Rest {
   get(id: string): Promise<RawElement | null>;
 }
 
-/** What the writer reads: the raw mirror, and converted elements (for generated ids such as labels). */
+/** What the writer reads: the raw elements, and converted elements (for generated ids such as labels). */
 export interface Source {
-  /** The raw mirror. The writer records its own writes in it at once (the server's WebSocket echo can lag the
-   * REST reply, and the next op's inverse must see this one). */
+  /** The raw elements. The writer records its own writes in it at once (the next op's inverse must see this
+   * one even if the store behind `Rest` is remote and lags). */
   raw(): Map<string, RawElement>;
   prepared(id: string): Readonly<Record<string, unknown>> | undefined;
 }

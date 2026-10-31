@@ -62,10 +62,10 @@ test("mermaid add, ls, remove on a temp app home", () => {
 });
 
 test("canvas status reports everything down when nothing listens", async () => {
-  const s = await status({ EXPRESS_SERVER_URL: "http://127.0.0.1:9", CANVAS_SIDECAR_PORT: "9" });
+  const s = await status({ HC_TERMINAL_ID: "t5", CANVAS_SIDECAR_PORT: "9" });
   expect(s).toEqual({
-    server: { url: "http://127.0.0.1:9", up: false },
-    sidecar: { url: "http://127.0.0.1:9", up: false },
-    board: null,
+    sidecar: { url: "http://127.0.0.1:9", up: false, pid: null },
+    board: { id: "t5", url: "http://127.0.0.1:9/b/t5" },
+    boards: [],
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { RawElement } from "../src/sidecar/mirror.ts";
+import type { RawElement } from "../src/sidecar/diff.ts";
 import { type Rest, Writer } from "../src/sidecar/writer.ts";
 
 /** A fake server: an element map plus a call log. */

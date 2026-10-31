@@ -6,7 +6,19 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["src/**", "scripts/**", "test/**", "bin/**", "mods/**", "*.json", "!**/dist", "!types", "!**/*.svg"]
+    "includes": [
+      "src/**",
+      "scripts/**",
+      "test/**",
+      "bin/**",
+      "mods/**",
+      "*.json",
+      "!**/dist",
+      "!types",
+      "!**/*.svg",
+      "!src/board/upstream",
+      "!src/board/assets"
+    ]
   },
   "formatter": {
     "indentStyle": "space",
