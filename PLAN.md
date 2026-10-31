@@ -78,6 +78,10 @@ Decided 2026-10-31. One package and CLI, `herdr-draw`, for both kinds of visual:
    - Throughput over the ssh pipe: 540-1190 msg/s for 1 KB patches, 0.6-1.4 MB/s; the link is the limit.
    - Connect plus first echo: 0.6-1.5 s; reconnect after a drop: 0.6-0.95 s.
    - A 70 s stream at one echo per second ran fine (p50 26 ms), with no cap.
+   - End to end through `src/bridge` (Bridge, then ssh, then endpoint, then a fake sidecar websocket
+     on vpsme):
+     - subscribe to scene: 0.67 s; ops to patch: p50 29 / p95 93 ms.
+     - A killed endpoint is seen in 0.53 s; an op queued during the drop is answered 1.6 s later.
    - Disconnect cases:
      - Killing the local ssh: the remote endpoint sees EOF and exits within 1.5 s.
      - Killing the remote endpoint: the local ssh exits (code 255) in about 0.55 s.
