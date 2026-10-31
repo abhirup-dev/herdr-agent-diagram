@@ -9,7 +9,7 @@
 import { InputState, type InputState as InputStateT, Textarea, TextareaState } from "gpui-base";
 import { hide_fps_monitor, show_fps_monitor } from "gpui-fps";
 import { type Context, div, type Element, type FocusHandle, View } from "gpui-kit";
-import { fonts, layout, settings, theme } from "herdr";
+import { layout, settings, theme } from "herdr";
 import { WebSocket, type WebSocketSocket } from "websocket";
 import { type Camera, fit, pan, zoomAt } from "../canvas/camera.ts";
 import { darkColor, isDark } from "../canvas/color.ts";
@@ -28,20 +28,12 @@ const PREVIEW_TIMEOUT_MS = 400;
 
 const appZoom = (): number => Number(settings().zoom) || 1;
 
-// fonts() enumerates every installed font: read it once, not per text element per frame.
-let installed: ReadonlySet<string> | null = null;
-
-/** Excalidraw font family -> the nearest installed font (GPUI sees installed fonts only). */
-function fontFor(family: number): string {
-  installed ??= new Set(fonts());
-  const wanted =
-    family === 3
-      ? ["Cascadia Code", "SF Mono", "Menlo"]
-      : family === 2 || family === 6
-        ? ["Helvetica Neue", "Helvetica", "Arial"]
-        : ["Excalifont", "Virgil", "Comic Sans MS", "Helvetica Neue"];
-  return wanted.find((f) => installed?.has(f)) ?? "Helvetica Neue";
-}
+/**
+ * Excalidraw font family -> its font. Excalifont, Virgil and Cascadia ship in this mod's fonts/ (Herdr loads them
+ * at start and on a look change); Helvetica is a macOS system font.
+ */
+const FONTS: Readonly<Record<number, string>> = { 1: "Virgil", 2: "Helvetica", 3: "Cascadia Code", 5: "Excalifont" };
+const fontFor = (family: number): string => FONTS[family] ?? "Excalifont";
 
 type Link = "connecting" | "connected" | "sidecar down" | "server down";
 type Pointer = { readonly position: { x: number; y: number }; readonly local_position?: { x: number; y: number } };

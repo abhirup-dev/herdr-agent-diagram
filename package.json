@@ -28,7 +28,7 @@
     "lint": "biome check .",
     "fix": "biome check --write .",
     "test": "bun test",
-    "build:mod": "bun build src/canvas-mod/main.ts --outdir dist/mods/excal-canvas --target browser --format esm --external gpui-kit --external gpui-base --external herdr --external websocket --external gpui-fps && cp src/canvas-mod/mod.json dist/mods/excal-canvas/ && cp -R src/canvas-mod/icons dist/mods/excal-canvas/ && bun scripts/check-bundle.ts dist/mods/excal-canvas/main.js",
+    "build:mod": "bun build src/canvas-mod/main.ts --outdir dist/mods/excal-canvas --target browser --format esm --external gpui-kit --external gpui-base --external herdr --external websocket --external gpui-fps && cp src/canvas-mod/mod.json dist/mods/excal-canvas/ && cp -R src/canvas-mod/icons dist/mods/excal-canvas/ && mkdir -p dist/mods/excal-canvas/fonts && cp node_modules/mcp-excalidraw-server/assets/fonts/{Excalifont,Virgil,CascadiaCode}-Regular.ttf node_modules/mcp-excalidraw-server/assets/fonts/LICENSES.md dist/mods/excal-canvas/fonts/ && bun scripts/check-bundle.ts dist/mods/excal-canvas/main.js",
     "check": "bun run typecheck && bun run lint && bun run test"
   },
   "patchedDependencies": {
