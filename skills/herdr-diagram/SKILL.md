@@ -27,19 +27,19 @@ Clicking it opens a popup with tabs and pages. You pin with one CLI.
    and how big the text will show in the popup. Open the PNG (your image/file
    reading tool) and check the labels and layout. On a `warning:` line, split
    the diagram, shorten labels, or switch direction, then `replace`. To try a
-   draft without pinning, `herdr-diagram check file.mmd`.
+   draft without pinning, `herdr-draw mermaid check file.mmd`.
 7. The CLI needs `$HC_TERMINAL_ID`, which the terminal running you already
    has. Never pass `--terminal` yourself.
 
 ## Commands
 
 ```sh
-herdr-diagram add [--tab NAME] [--title T] file.mmd     # prints the pin id (d1, d2, ...)
-printf 'flowchart TD\n  a --> b\n' | herdr-diagram add --title "Build"
-herdr-diagram replace d2 [--title T] file.mmd
-herdr-diagram remove d2
-herdr-diagram check file.mmd                            # render only: errors, preview PNG, readability
-herdr-diagram ls                                        # tabs, ids, titles
+herdr-draw mermaid add [--tab NAME] [--title T] file.mmd     # prints the pin id (d1, d2, ...)
+printf 'flowchart TD\n  a --> b\n' | herdr-draw mermaid add --title "Build"
+herdr-draw mermaid replace d2 [--title T] file.mmd
+herdr-draw mermaid remove d2
+herdr-draw mermaid check file.mmd                            # render only: errors, preview PNG, readability
+herdr-draw mermaid ls                                        # tabs, ids, titles
 ```
 
 Input is bare Mermaid, or Markdown with a `# Title` and a ```mermaid fence
@@ -48,5 +48,5 @@ Input is bare Mermaid, or Markdown with a `# Title` and a ```mermaid fence
 ## With other skills
 
 - `/statechart` (pstack) writes `chart.mmd`, a `stateDiagram-v2`: also run
-  `herdr-diagram add --tab "State chart" <out>/chart.mmd` so the user sees it in
+  `herdr-draw mermaid add --tab "State chart" <out>/chart.mmd` so the user sees it in
   the app.

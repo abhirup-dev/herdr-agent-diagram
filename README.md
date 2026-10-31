@@ -1,11 +1,11 @@
-# herdr-agent-diagram
+# herdr-draw
 
 Coding agents (Claude Code, Pi, anything with a shell) pin Mermaid diagrams
 for the terminal they run in. The Herdr desktop app shows a badge in that
 pane's header and a popup viewer with tabs and pages.
 
 ```
-agent ──herdr-diagram add──▶ ~/.config/herdr-app/data/herdr-agent-diagram/<terminal>/
+agent ──herdr-draw mermaid add──▶ ~/.config/herdr-app/data/herdr-agent-diagram/<terminal>/
                               state.json + <pin>-r<rev>.svg (raw Pele SVG)
                                      │ watchFolder
           ┌──────────────────────────┴──────────────────────────┐
@@ -19,8 +19,8 @@ State is keyed by `$HC_TERMINAL_ID` only: one diagram set per terminal.
 ## Try it (POC, local install)
 
 ```sh
-npm install
-./install.sh                   # ~/.local/bin/herdr-diagram, mods into ~/.config/herdr-app/mods,
+bun install
+./install.sh                   # ~/.local/bin/herdr-draw, mods into ~/.config/herdr-app/mods,
                                # skill into ~/.claude/skills and ~/.pi/agent/skills
 ```
 
@@ -39,8 +39,8 @@ herdr-app do layout.clone '{"name":"compact","as":"compact-diagrams"}'
 Then, in any terminal inside Herdr:
 
 ```sh
-printf 'flowchart TD\n  a[Cart] --> b[Pay]\n' | herdr-diagram add --title "Checkout"
-herdr-diagram ls
+printf 'flowchart TD\n  a[Cart] --> b[Pay]\n' | herdr-draw mermaid add --title "Checkout"
+herdr-draw mermaid ls
 ```
 
 The header shows `◫ 1`, glowing. Click it, or `herdr-app do mod.open --name diagram-popup`
@@ -56,21 +56,26 @@ warning when the fitted text would be under 70% size.
 ## CLI
 
 ```
-herdr-diagram add [--tab NAME] [--title T] [file]   bare mermaid or markdown with a ```mermaid fence; stdin if no file
-herdr-diagram replace <id> [--title T] [file]
-herdr-diagram remove <id>
-herdr-diagram check [file | id]                     render only: Pele errors, a PNG preview, readability warnings
-herdr-diagram ls [--json]
-herdr-diagram clear
+herdr-draw mermaid add [--tab NAME] [--title T] [file]   bare mermaid or markdown with a ```mermaid fence; stdin if no file
+herdr-draw mermaid replace <id> [--title T] [file]
+herdr-draw mermaid remove <id>
+herdr-draw mermaid check [file | id]                     render only: Pele errors, a PNG preview, readability warnings
+herdr-draw mermaid ls [--json]
+herdr-draw mermaid clear
   --terminal <addr>   override $HC_TERMINAL_ID (testing)
+herdr-draw canvas open | start | status                  live Excalidraw canvas beside this terminal; status prints JSON health
+herdr-draw canvas <board command>                        passed to the board CLI (mcp-excalidraw-server), e.g. describe
+herdr-draw open                                          the view for this terminal (for now: canvas open)
+herdr-draw help
 ```
 
 ## Layout of this repo
 
-- `bin/herdr-diagram.mjs`: the CLI (Node, `pele`, `@resvg/resvg-js` for PNG previews).
+- `bin/herdr-draw.mjs`: the CLI router; `bin/lib/mermaid.mjs` (Node, `pele`, `@resvg/resvg-js` for PNG previews)
+  and `bin/lib/canvas.mjs` (starts the canvas server from `node_modules/.bin` and the sidecar, splits the pane).
 - `mods/diagram-pane/`: clone of Herdr's shipped `pane` header plus the badge.
 - `mods/diagram-popup/`: the viewer.
-- `skills/herdr-diagram/SKILL.md`: the agent skill (Claude Code and Pi read the same file).
+- `skills/herdr-diagram/SKILL.md`, `skills/herdr-canvas/SKILL.md`: the agent skills (Claude Code and Pi read the same file).
 - `scratch/anim-spike.mjs`: the animated-GIF experiment (negative result, see below).
 
 ## Known limits (POC)

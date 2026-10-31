@@ -8,7 +8,7 @@ description: Use inside the Herdr desktop app when drawing or editing an Excalid
 In Herdr, the Excalidraw canvas is a native pane, not a browser tab. Draw with
 **excalidraw-skill** as usual; this skill only shows its canvas.
 
-1. Before the first drawing in a session, run `herdr-canvas open`. It starts the
+1. Before the first drawing in a session, run `herdr-draw canvas open`. It starts the
    canvas server and the sidecar if they are down, then splits a canvas pane to the
    right of your terminal. Run it once: each run adds another pane.
 2. Everything excalidraw-skill writes appears in the pane as you write it. The

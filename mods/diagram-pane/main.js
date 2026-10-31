@@ -1,6 +1,6 @@
 // A badge-only pane header: the count of diagrams the agent in this terminal pinned
-// with `herdr-diagram`, in the header's right corner, and nothing at all without one.
-// Click it: the `diagram-popup` viewer for this terminal. Once the agent ran `herdr-canvas open`, a second
+// with `herdr-draw mermaid`, in the header's right corner, and nothing at all without one.
+// Click it: the `diagram-popup` viewer for this terminal. Once the agent ran `herdr-draw canvas open`, a second
 // badge toggles the live Excalidraw canvas (`excal-canvas`) as a pane to the right.
 // Layout: { "tab": "active", "pane": { "header": { "content": { "mod": "diagram-pane",
 //   "props": { "animate": "always", "period": 1100 } }, "height": 22, "position": "top", "reveal": "hover" } } }
@@ -80,7 +80,7 @@ export default class Pane extends View {
         cx.stop_propagation();
         if (open) return run("pane.close", { pane: open.pane });
         cx.spawn(async () => {
-          await exec(`${home()}/.local/bin/herdr-canvas`, ["start"]).catch(() => null);
+          await exec(`${home()}/.local/bin/herdr-draw`, ["canvas", "start"]).catch(() => null);
           run("pane.split", { pane, direction: "right", mod: "excal-canvas" });
         });
       })

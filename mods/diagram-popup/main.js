@@ -1,5 +1,5 @@
 // The diagram viewer: a dialog showing one terminal's pinned Mermaid diagrams
-// (`herdr-diagram`), as tabs of pages. Props: { terminal, overlay }. Opened by the
+// (`herdr-draw mermaid`), as tabs of pages. Props: { terminal, overlay }. Opened by the
 // `diagram-pane` header badge or `herdr-app do mod.open --name diagram-popup`
 // (then it shows the focused pane's terminal). Reads
 // <app home>/data/herdr-agent-diagram/<terminal>/state.json and the raw Pele SVGs
@@ -449,7 +449,7 @@ export default class DiagramPopup extends View {
                 .text_color(t.dim)
                 .child(
                   this.terminal
-                    ? `No diagrams pinned for ${this.terminal} yet. An agent pins one with: herdr-diagram add file.mmd`
+                    ? `No diagrams pinned for ${this.terminal} yet. An agent pins one with: herdr-draw mermaid add file.mmd`
                     : "No terminal is focused.",
                 ),
             ),
