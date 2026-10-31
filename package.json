@@ -8,6 +8,7 @@
     "herdr-diagram": "bin/herdr-diagram.mjs"
   },
   "dependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "pele": "^1.12.0"
   }
 }

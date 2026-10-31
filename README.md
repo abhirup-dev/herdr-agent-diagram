@@ -44,7 +44,14 @@ herdr-diagram ls
 ```
 
 The header shows `◫ 1`, glowing. Click it, or `herdr-app do mod.open --name diagram-popup`
-(opens for the focused pane). In the popup: `←`/`→` pages, `↑`/`↓` or `1`-`9` tabs, `Esc` closes.
+(opens for the focused pane). Each diagram is fitted to its viewport; its toolbar zooms
+(− + fit 1:1), pans (← ↑ ↓ →) and maximises. Drag or scroll pans, ⌘/ctrl-scroll zooms,
+double-click maximises. Keys: `←`/`→` pages, `↑`/`↓` or `1`-`9` tabs, `+` `-` `0` zoom/fit,
+`f` maximise (arrows then pan), `Esc` restores, then closes.
+
+Every pin also gets `<id>.png` beside `state.json` (light theme, via resvg) so an
+agent can look at what it drew; `add`/`replace` print its path and a readability
+warning when the fitted text would be under 70% size.
 
 ## CLI
 
@@ -52,6 +59,7 @@ The header shows `◫ 1`, glowing. Click it, or `herdr-app do mod.open --name di
 herdr-diagram add [--tab NAME] [--title T] [file]   bare mermaid or markdown with a ```mermaid fence; stdin if no file
 herdr-diagram replace <id> [--title T] [file]
 herdr-diagram remove <id>
+herdr-diagram check [file | id]                     render only: Pele errors, a PNG preview, readability warnings
 herdr-diagram ls [--json]
 herdr-diagram clear
   --terminal <addr>   override $HC_TERMINAL_ID (testing)
@@ -59,7 +67,7 @@ herdr-diagram clear
 
 ## Layout of this repo
 
-- `bin/herdr-diagram.mjs`: the CLI (Node, `pele`).
+- `bin/herdr-diagram.mjs`: the CLI (Node, `pele`, `@resvg/resvg-js` for PNG previews).
 - `mods/diagram-pane/`: clone of Herdr's shipped `pane` header plus the badge.
 - `mods/diagram-popup/`: the viewer.
 - `skills/herdr-diagram/SKILL.md`: the agent skill (Claude Code and Pi read the same file).
@@ -76,3 +84,6 @@ herdr-diagram clear
 - `mod.open` cannot pass props, so the popup opened from the palette or CLI
   shows the focused pane's terminal.
 - `herdr-app check` does not run deferred renders: test tab switches in the app.
+- Pele's own zoom/pan controls (`enableZoom`) are DOM-only; the popup reimplements
+  them natively. `on_size_change` reports unzoomed px while `.w()`/`.h()` are
+  multiplied by the app zoom, so the popup divides measured sizes by `settings().zoom`.

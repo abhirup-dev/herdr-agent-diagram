@@ -23,7 +23,12 @@ Clicking it opens a popup with tabs and pages. You pin with one CLI.
    that no longer apply.
 5. **Pele rejects what it can't draw** (exit 1 with the reason). Fix the
    Mermaid and retry; don't fall back to another tool.
-6. The CLI needs `$HC_TERMINAL_ID`, which the terminal running you already
+6. **Look at what you pinned.** `add` and `replace` print a `preview:` PNG path
+   and how big the text will show in the popup. Open the PNG (your image/file
+   reading tool) and check the labels and layout. On a `warning:` line, split
+   the diagram, shorten labels, or switch direction, then `replace`. To try a
+   draft without pinning, `herdr-diagram check file.mmd`.
+7. The CLI needs `$HC_TERMINAL_ID`, which the terminal running you already
    has. Never pass `--terminal` yourself.
 
 ## Commands
@@ -33,6 +38,7 @@ herdr-diagram add [--tab NAME] [--title T] file.mmd     # prints the pin id (d1,
 printf 'flowchart TD\n  a --> b\n' | herdr-diagram add --title "Build"
 herdr-diagram replace d2 [--title T] file.mmd
 herdr-diagram remove d2
+herdr-diagram check file.mmd                            # render only: errors, preview PNG, readability
 herdr-diagram ls                                        # tabs, ids, titles
 ```
 
