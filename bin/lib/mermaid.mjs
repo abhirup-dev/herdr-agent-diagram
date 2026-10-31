@@ -1,20 +1,18 @@
-#!/usr/bin/env node
-// herdr-diagram: pin Mermaid diagrams for the terminal this agent runs in ($HC_TERMINAL_ID).
+// herdr-draw mermaid: pin Mermaid diagrams for the terminal this agent runs in ($HC_TERMINAL_ID).
 // State lives in the Herdr app home so the mod can image() the SVGs by relative path:
 //   <app home>/data/herdr-agent-diagram/<terminal>/state.json + <pin>-r<rev>.svg (raw Pele output, CSS variables intact:
 //   the viewer mod substitutes the live theme colors and UI font at display time)
 //
-//   herdr-diagram add [--tab NAME] [--title T] [file]      mermaid or markdown with a ```mermaid fence; stdin if no file
-//   herdr-diagram replace <id> [--title T] [file]
-//   herdr-diagram remove <id>
-//   herdr-diagram check [file | id]                         render only: errors, PNG preview, readability
-//   herdr-diagram ls [--json]
-//   herdr-diagram clear
+//   herdr-draw mermaid add [--tab NAME] [--title T] [file]      mermaid or markdown with a ```mermaid fence; stdin if no file
+//   herdr-draw mermaid replace <id> [--title T] [file]
+//   herdr-draw mermaid remove <id>
+//   herdr-draw mermaid check [file | id]                         render only: errors, PNG preview, readability
+//   herdr-draw mermaid ls [--json]
+//   herdr-draw mermaid clear
 // Options: --terminal <addr> (default $HC_TERMINAL_ID)
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { Resvg } from "@resvg/resvg-js";
 import { render } from "pele";
 
@@ -38,9 +36,9 @@ export function extract(text) {
   return { mmd: (fence ? fence[1] : text).trim(), title: fence && head ? head[1].trim() : null };
 }
 
-const HELP = `herdr-diagram: pin Mermaid diagrams for the Herdr terminal you run in; they show in the app's pane badge and Diagrams popup.
+export const HELP = `herdr-draw mermaid: pin Mermaid diagrams for the Herdr terminal you run in; they show in the app's pane badge and Diagrams popup.
 
-usage: herdr-diagram <command> [options]
+usage: herdr-draw mermaid <command> [options]
 
   add [--tab NAME] [--title T] [file]   pin a diagram (file or stdin: bare mermaid, or markdown with a \`\`\`mermaid fence
                                         and a # heading as the title); prints its id, a PNG preview path
@@ -92,11 +90,12 @@ function advice({ width, height }) {
 }
 
 function die(msg) {
-  process.stderr.write(`herdr-diagram: ${msg}\n`);
+  process.stderr.write(`herdr-draw mermaid: ${msg}\n`);
   process.exit(1);
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
+  /** @type {{ _: string[], [flag: string]: string[] | string | boolean }} */
   const o = { _: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -171,23 +170,25 @@ function check(file, mmd = extract(readInput(file)).mmd, label = "") {
   } catch (e) {
     die(`Pele could not draw it: ${e.message}`);
   }
-  const png = path.join(os.tmpdir(), `herdr-diagram-check-${process.pid}.png`);
+  const png = path.join(os.tmpdir(), `herdr-draw-check-${process.pid}.png`);
   toPng(out.svg, png);
   console.log(
     `${label}ok (${out.mermaidType}, ${out.width}x${out.height})\npreview: ${png}\n${advice(out).join("\n")}`,
   );
 }
 
-async function main() {
-  const o = parseArgs(process.argv.slice(2));
+export async function mermaid(argv) {
+  const o = parseArgs(argv);
   const [cmd, ...rest] = o._;
   if (cmd === undefined || cmd === "help" || o.help || o.h) {
     process.stdout.write(HELP);
     return;
   }
   if (cmd === "check" && (!rest[0] || fs.existsSync(rest[0]))) return check(rest[0]); // a file or stdin: no terminal needed
-  if (!["add", "replace", "remove", "ls", "clear", "check"].includes(cmd))
-    die(`unknown command ${cmd}; try herdr-diagram help`);
+  if (!["add", "replace", "remove", "ls", "clear", "check"].includes(cmd)) {
+    process.stderr.write(`herdr-draw mermaid: unknown command ${cmd}\n\n${HELP}`);
+    process.exit(2);
+  }
   const terminal = o.terminal || process.env.HC_TERMINAL_ID;
   if (!terminal) die("no $HC_TERMINAL_ID: run inside a herdr-core terminal or pass --terminal");
   if (/[^A-Za-z0-9_.-]/.test(terminal))
@@ -249,6 +250,3 @@ async function main() {
     }
   }
 }
-
-// Only run as a CLI; tests and spikes import extract.
-if (process.argv[1] && import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href) main();
