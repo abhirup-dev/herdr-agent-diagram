@@ -419,7 +419,7 @@ export async function run(argv: string[], opts: CliOptions): Promise<number> {
       if (!raw.trim()) throw new UsageError(`No ${what} provided (pass a file argument or pipe JSON to stdin)`);
       return parseJson(raw, what);
     };
-    await opts.ensure?.();
+    if (name !== "stop") await opts.ensure?.();
     await cmd.run({ c: new BoardClient(opts.url), pos, flags, input, text });
     return 0;
   } catch (e) {
