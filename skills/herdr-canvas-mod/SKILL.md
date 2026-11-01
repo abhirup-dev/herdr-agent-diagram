@@ -1,29 +1,27 @@
 ---
 name: herdr-canvas-mod
-description: Use inside the Herdr desktop app to draw, lay out, edit or refine an Excalidraw diagram on a live canvas the user can edit too, or when the user asks to see the canvas beside the agent. Works the same when the agent runs on another machine the app reaches. Opens the canvas as a pane to the agent's right; drawing commands are `herdr-draw canvas <command>`.
+description: Use inside the Herdr desktop app to show the user a diagram beside the agent, either pinned as Mermaid (the pane's Diagrams badge and popup) or drawn on a live Excalidraw canvas the user can edit too. Use when the user asks to pin, replace or remove a diagram, mentions the diagram badge or popup, asks to draw, lay out or edit a diagram together, or asks to see the canvas; also when another skill produced a chart.mmd worth keeping visible. Works the same when the agent runs on another machine the app reaches. One CLI: `herdr-draw`.
 ---
 
 # herdr-canvas-mod
 
-The canvas is a native Herdr pane beside your terminal, showing your own board. You draw with
-`herdr-draw canvas <command>`; the user sees each change live and can edit the same scene.
+Two ways to show a diagram next to your terminal in the Herdr app, both through `herdr-draw` CLI:
 
-1. **Open once per session:** `herdr-draw canvas open` starts what it needs and splits a canvas pane
-   to your right (each run adds another pane, so don't repeat it). On a machine without the Herdr
-   app it asks the app on the user's machine to open it; nothing else changes for you.
-2. **Draw** with `add`, `apply`, `update`, `delete`; read with `describe`, `get`, `query`; check with
-   `screenshot`. Read [references/drawing.md](references/drawing.md) before your first diagram.
-   `herdr-draw canvas help [command]` has every command and flag.
-3. **Read before you edit:** the user may have changed the scene. Run `describe` first.
-4. **Keep it narrow:** the pane is usually tall and narrow. Lay out top to bottom, at most 3-4 boxes
-   per row, and wrap long chains onto the next row. Go wide only when the user asks.
-5. **Screenshot before you say you're done:** `herdr-draw canvas screenshot` prints a PNG path. Look at
-   it: no cut-off text, no labels crossing lines or boxes, arrows longer than their labels.
-   Never ask the user to open a browser.
+| The user wants | Use | Read first |
+|---|---|---|
+| A diagram kept visible, read-only (an architecture, a flow, a state machine) | `herdr-draw mermaid`: pins show in the pane's Diagrams badge and popup | [references/mermaid.md](references/mermaid.md) |
+| To draw or edit a diagram together, or to see the canvas | `herdr-draw canvas`: a live Excalidraw pane to your right | [references/canvas.md](references/canvas.md) |
 
-Your board is saved to `~/.local/state/herdr-draw/boards/<your terminal id>.excalidraw` a second after
-each change. If the canvas comes back empty, restore it with
-`herdr-draw canvas import <that file> --replace`.
+Diagrams that are just part of a chat answer stay in chat. Mermaid pins can't be converted onto the
+canvas: draw the elements there directly.
 
-For a read-only diagram that stays pinned, use the herdr-diagram skill (`herdr-draw mermaid`).
-Mermaid can't be converted onto the canvas: draw the elements directly.
+Both modes:
+
+- **Prefer tall diagrams.** The user views it in a tall, narrow pane: keep horizontal width conservative, lay out top to bottom, a few nodes per
+  row, wrap long chains. Go wide only when asked.
+- **Look at what you made before you say you're done.** Both print a PNG path (`mermaid add` and
+  `replace` print `preview:`, `canvas screenshot` prints its file). Open it and fix cut-off text,
+  crossing labels and cramped layouts.
+- `herdr-draw <mermaid|canvas> help [command]` has every command and flag. Never pass `--terminal`;
+  your terminal's `$HC_TERMINAL_ID` picks your pins and your board.
+- If a pin or the canvas doesn't show up, check `herdr-draw logs` before guessing.

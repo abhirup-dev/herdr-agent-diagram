@@ -1,4 +1,16 @@
-# Drawing on the canvas
+# The live canvas
+
+The canvas is a native Herdr pane beside your terminal showing your own board; the user sees each change
+live and can edit the same scene.
+
+1. **Open once per session:** `herdr-draw canvas open` starts what it needs and splits a pane to your
+   right (each run adds another pane). On a machine without the Herdr app, it asks the app on the
+   user's machine to open it; nothing else changes for you.
+2. **Read before you edit:** run `describe` first; the user may have changed the scene.
+3. **Never ask the user to open a browser:** `screenshot` works without one.
+4. Your board is saved to `~/.local/state/herdr-draw/boards/<your terminal id>.excalidraw` a second
+   after each change. If the canvas comes back empty, restore it with
+   `herdr-draw canvas import <that file> --replace`.
 
 Every command runs as `herdr-draw canvas <command>` on this terminal's board. Results are JSON on stdout
 (`describe` is plain text). Exit codes: 0 ok, 1 error, 2 usage, 3 board unreachable.

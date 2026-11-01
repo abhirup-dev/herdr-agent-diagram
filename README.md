@@ -130,7 +130,7 @@ For a remote board, read both sides: the laptop's `sidecar` (`relay:` and `bridg
   and `cli/lib/canvas.mjs` (starts the canvas server from `node_modules/.bin` and the sidecar, splits the pane).
 - `mods/diagram-pane/`: clone of Herdr's shipped `pane` header plus the badge.
 - `mods/diagram-popup/`: the viewer.
-- `skills/herdr-diagram/SKILL.md`, `skills/herdr-canvas-mod/SKILL.md`: the agent skills (Claude Code and Pi read the same file).
+- `skills/herdr-canvas-mod/`: the agent skill; `SKILL.md` routes to `references/mermaid.md` (pins) or `references/canvas.md` (live canvas).
 - `scratch/anim-spike.mjs`: the animated-GIF experiment (negative result, see below).
 
 ## Known limits (POC)

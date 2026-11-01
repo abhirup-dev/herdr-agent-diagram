@@ -18,9 +18,9 @@ const SRC = path.resolve(path.dirname(fs.realpathSync(fileURLToPath(import.meta.
 const VERSION = JSON.parse(fs.readFileSync(path.join(SRC, "package.json"), "utf8")).version;
 const HOME = os.homedir();
 const MODS = ["diagram-pane", "diagram-popup", "excal-canvas"];
-const SKILLS = ["herdr-diagram", "herdr-canvas-mod"];
+const SKILLS = ["herdr-canvas-mod"];
 /** Names earlier versions installed: their links are removed on install and uninstall. */
-const OLD_SKILLS = ["herdr-canvas"];
+const OLD_SKILLS = ["herdr-canvas", "herdr-diagram"];
 /** Where each agent reads personal skills from. */
 const AGENTS = {
   claude: { bin: "claude", skills: ".claude/skills" },
