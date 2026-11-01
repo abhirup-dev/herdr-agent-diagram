@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { type Alignment, align, type Direction, distribute, duplicate, group, setLocked, ungroup } from "./arrange.ts";
 import { BoardClient, UnreachableError } from "./client.ts";
+import { labelOverflowWarnings } from "./overflow.ts";
 import { describeScene, prepareElement, prepareUpdate } from "./prepare.ts";
 import { renderingWarnings } from "./render.ts";
 import { sceneFile } from "./scene-file.ts";
@@ -43,6 +44,22 @@ const print = (v: unknown): void => {
   process.stdout.write(`${JSON.stringify(v, null, 2)}\n`);
 };
 const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+
+function asUsage(e: unknown): never {
+  const message = e instanceof Error ? e.message : String(e);
+  if (/^id .+ exists; use update$/.test(message)) throw new UsageError(message);
+  throw e;
+}
+
+/** JSON result. `warnings` is present only when a touched label does not fit its shape. */
+/** Prints a write's result with both kinds of warnings: labels that overflow their shape, and arrow labels drawn beside the shaft. */
+async function finish(c: BoardClient, body: Record<string, unknown>, elements: BoardElement[]): Promise<void> {
+  const warnings = [
+    ...labelOverflowWarnings(elements),
+    ...((await renderingWarnings(await c.elements())).warnings ?? []),
+  ];
+  print(warnings.length ? { ...body, warnings } : body);
+}
 
 function parseArgs(
   argv: string[],
@@ -90,6 +107,24 @@ function parseJson(raw: string, what: string): unknown {
 
 // --- element commands ------------------------------------------------------------------------------------
 
+async function applyUpdates(
+  c: BoardClient,
+  entries: Record<string, unknown>[],
+  known: Map<string, BoardElement>,
+): Promise<BoardElement[]> {
+  const updated: BoardElement[] = [];
+  for (const u of entries) {
+    const { id, set, ...rest } = u as { id?: unknown; set?: unknown } & Record<string, unknown>;
+    if (typeof id !== "string" || !id) throw new UsageError('Every update entry needs an "id"');
+    if (set !== undefined && (Object.keys(rest).length || !set || typeof set !== "object"))
+      throw new UsageError('Use either direct update fields or "set" (an object), not both');
+    const existing = known.get(id);
+    if (!existing) throw new Error(`Element ${id} not found`);
+    updated.push(await c.update(id, prepareUpdate((set ?? rest) as Record<string, unknown>, existing.type, existing)));
+  }
+  return updated;
+}
+
 async function applyPatch({ c, pos, input }: Ctx): Promise<void> {
   const raw = await input(pos[0], "patch");
   const patch = (Array.isArray(raw) ? { create: raw } : raw) as {
@@ -99,36 +134,23 @@ async function applyPatch({ c, pos, input }: Ctx): Promise<void> {
   };
   if (!patch.create?.length && !patch.update?.length && !patch.delete?.length)
     throw new UsageError("Patch has no create/update/delete operations");
-  const created = patch.create?.length ? await c.batch(patch.create.map(prepareElement)) : [];
-  const types = new Map((await c.elements()).map((e) => [e.id, e.type]));
-  const updated: BoardElement[] = [];
-  for (const u of patch.update ?? []) {
-    const { id, set, ...rest } = u as { id?: unknown; set?: unknown } & Record<string, unknown>;
-    if (typeof id !== "string" || !id) throw new UsageError('Every update entry needs an "id"');
-    if (set !== undefined && (Object.keys(rest).length || !set || typeof set !== "object"))
-      throw new UsageError('Use either direct update fields or "set" (an object), not both');
-    const type = types.get(id);
-    if (!type) throw new Error(`Element ${id} not found`);
-    updated.push(await c.update(id, prepareUpdate((set ?? rest) as Record<string, unknown>, type)));
-  }
+  const created = patch.create?.length ? await c.batch(patch.create.map(prepareElement)).catch(asUsage) : [];
+  const known = new Map((await c.elements()).map((e) => [e.id, e]));
+  const updated = await applyUpdates(c, patch.update ?? [], known);
   for (const id of patch.delete ?? []) await c.remove(id);
   const deleted = patch.delete?.length ?? 0;
-  print({
-    success: true,
-    created: created.length,
-    updated: updated.length,
-    deleted,
-    elements: created,
-    ...(await renderingWarnings(await c.elements())),
-  });
+  await finish(c, { success: true, created: created.length, updated: updated.length, deleted, elements: created }, [
+    ...created,
+    ...updated,
+  ]);
 }
 
 async function add({ c, pos, flags, input }: Ctx): Promise<void> {
   const one = str(flags.one);
   const raw = one !== undefined ? [parseJson(one, "in --one")] : await input(pos[0], "elements");
   const els = (Array.isArray(raw) ? raw : [raw]) as Record<string, unknown>[];
-  const created = await c.batch(els.map(prepareElement));
-  print({ success: true, count: created.length, elements: created, ...(await renderingWarnings(await c.elements())) });
+  const created = await c.batch(els.map(prepareElement)).catch(asUsage);
+  await finish(c, { success: true, count: created.length, elements: created }, created);
 }
 
 async function update({ c, pos, flags, input }: Ctx): Promise<void> {
@@ -140,11 +162,8 @@ async function update({ c, pos, flags, input }: Ctx): Promise<void> {
     unknown
   >;
   const existing = await c.get(id);
-  print({
-    success: true,
-    element: await c.update(id, prepareUpdate(fields, existing.type)),
-    ...(await renderingWarnings(await c.elements())),
-  });
+  const element = await c.update(id, prepareUpdate(fields, existing.type, existing));
+  await finish(c, { success: true, element }, [element]);
 }
 
 async function query({ c, flags }: Ctx): Promise<void> {
@@ -320,12 +339,12 @@ export const COMMANDS: Record<string, Command> = {
   },
   apply: {
     usage: "apply [patch.json|-]",
-    summary: "Apply a {create,update,delete} patch in one call",
+    summary: "Apply a {create,update,delete} patch; creating an existing id is an error",
     run: applyPatch,
   },
   add: {
     usage: "add [elements.json] (or stdin) | add --one '{...}'",
-    summary: "Create elements from a JSON array",
+    summary: "Create elements from a JSON array; an existing id is an error (use update)",
     flags: { one: "value" },
     run: add,
   },
@@ -355,7 +374,7 @@ export const COMMANDS: Record<string, Command> = {
   },
   describe: {
     usage: "describe",
-    summary: "AI-readable scene description (plain text)",
+    summary: "AI-readable scene description with arrow endpoints and frame names",
     run: async ({ c }) => void process.stdout.write(`${describeScene(await c.elements())}\n`),
   },
   screenshot: {
