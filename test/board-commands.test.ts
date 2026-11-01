@@ -21,6 +21,12 @@ describe("prepare input", () => {
     expect(kept).not.toHaveProperty("text");
   });
 
+  test("verticalAlign and textAlign next to text become the label's alignment", () => {
+    const zone = rect({ text: "Auth zone", verticalAlign: "top", textAlign: "left" });
+    expect(zone.label).toEqual({ text: "Auth zone", verticalAlign: "top", textAlign: "left" });
+    expect(zone).not.toHaveProperty("verticalAlign");
+  });
+
   test("fontSize on a labelled shape becomes label.fontSize", () => {
     const shape = rect({ text: "API", fontSize: 28 });
     expect(shape.fontSize).toBeUndefined();

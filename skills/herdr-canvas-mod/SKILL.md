@@ -17,11 +17,11 @@ canvas: draw the elements there directly.
 
 Both modes:
 
-- **Prefer tall diagrams.** The user views it in a tall, narrow pane: keep horizontal width conservative, lay out top to bottom, a few nodes per
-  row, wrap long chains. Go wide only when asked.
-- **Look at what you made before you say you're done.** Both print a PNG path (`mermaid add` and
-  `replace` print `preview:`, `canvas screenshot` prints its file). Open it and fix cut-off text,
-  crossing labels and cramped layouts.
-- `herdr-draw <mermaid|canvas> help [command]` has every command and flag. Never pass `--terminal`;
-  your terminal's `$HC_TERMINAL_ID` picks your pins and your board.
+- **Keep the canvas tall.** Its pane is tall and narrow: lay out top to bottom, a few nodes per row,
+  wrap long chains; go wide only when asked. For pins, follow the checker (it knows the popup's size).
+- **Look at what you made before you say you're done.** `mermaid add`/`replace` print a `preview:` PNG
+  path; `canvas screenshot` prints JSON with the PNG as `file`. Open it and fix cut-off text, crossing
+  labels and cramped layouts.
+- `herdr-draw mermaid help` and `herdr-draw canvas help [command]` list every command and flag. Never
+  pass `--terminal`; your terminal's `$HC_TERMINAL_ID` picks your pins and your board.
 - If a pin or the canvas doesn't show up, check `herdr-draw logs` before guessing.

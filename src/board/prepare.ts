@@ -10,21 +10,24 @@ const points = (p: unknown): [number, number][] | undefined =>
 
 const isRecord = (v: unknown): v is Input => !!v && typeof v === "object" && !Array.isArray(v);
 
-/** A frame title is `name`. Any other shape's `text` is its label, and a top-level `fontSize` belongs on that label. */
+/** Label styling given at the top level of a shape; Excalidraw only draws it on the label. */
+const LABEL_KEYS = ["fontSize", "verticalAlign", "textAlign"] as const;
+
+/** A frame title is `name`. Any other shape's `text` is its label, and top-level label styling belongs on that label. */
 function foldLabel(el: Input, type: string | undefined, existing?: Input): Input {
   if (type === "frame") return foldFrame(el);
   if (!type || type === "text") return el;
   const text = typeof el.text === "string" && el.text ? el.text : undefined;
-  const fontSize = typeof el.fontSize === "number" ? el.fontSize : undefined;
-  if (text === undefined && fontSize === undefined) return el;
+  const styles = LABEL_KEYS.filter((k) => el[k] !== undefined);
+  if (text === undefined && !styles.length) return el;
   const prior = isRecord(existing?.label) ? existing.label : undefined;
   const own = isRecord(el.label) ? el.label : undefined;
   if (text === undefined && !prior && !own) return el;
-  const { text: _text, fontSize: _fontSize, ...rest } = el;
+  const rest: Input = { ...el };
   const label: Input = { ...prior, ...own };
   if (text !== undefined) label.text = text;
-  if (fontSize !== undefined) label.fontSize = fontSize;
-  delete rest.label;
+  for (const k of styles) label[k] = el[k];
+  for (const k of ["text", "label", ...styles]) delete rest[k];
   return { ...rest, label };
 }
 
@@ -34,7 +37,7 @@ function foldFrame(el: Input): Input {
   return typeof rest.name === "string" && rest.name ? rest : { ...rest, name: text };
 }
 
-/** startElementId/endElementId -> start/end refs, frame `text` -> `name`, shape `text`/`fontSize` -> `label`. */
+/** startElementId/endElementId -> start/end refs, frame `text` -> `name`, shape `text` and label styling -> `label`. */
 export function prepareElement(input: Input): Input {
   const { startElementId, endElementId, id, ...props } = input;
   const t = new Date().toISOString();
@@ -57,7 +60,7 @@ export function prepareElement(input: Input): Input {
   return foldLabel(el, typeof el.type === "string" ? el.type : undefined);
 }
 
-/** An update body. Frame `text` becomes `name`; on a labelled shape `text` and `fontSize` join `label`. */
+/** An update body. Frame `text` becomes `name`; on a labelled shape `text` and label styling join `label`. */
 export function prepareUpdate(updates: Input, knownType?: string, existing?: Input): Input {
   const { points: raw, ...rest } = updates;
   const body: Input = { ...rest, points: points(raw), updatedAt: new Date().toISOString() };

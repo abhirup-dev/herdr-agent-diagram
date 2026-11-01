@@ -12,84 +12,68 @@ live and can edit the same scene.
    after each change. If the canvas comes back empty, restore it with
    `herdr-draw canvas import <that file> --replace`.
 
-Every command runs as `herdr-draw canvas <command>` on this terminal's board. Results are JSON on stdout
-(`describe` is plain text). Exit codes: 0 ok, 1 error, 2 usage, 3 board unreachable.
-Adapted from mcp-excalidraw-server's excalidraw-skill (MIT, src/board/LICENSE).
+Commands print JSON (`describe` prints text). Exit codes: 0 ok, 1 error, 2 usage, 3 board unreachable.
 
 ## Elements
 
-Send a JSON array to `add` (a file, or stdin), or a patch to `apply`:
-`{"create":[...],"update":[{"id":"a","set":{...}}],"delete":["id"]}`.
+`add` takes a JSON array (a file or stdin), or one element with `add --one '{...}'`. `apply` takes a
+patch: `{"create":[...],"update":[{"id":"a","set":{...}}],"delete":["id"]}`.
 
-- Give every element an `id` you choose (`"auth-svc"`), so you can update it later.
-- `"text": "Label"` on a shape becomes its label.
-- Arrows: `"startElementId"` / `"endElementId"` bind them to shapes; they route to the edges and follow
-  when the shapes move.
-- `fontFamily` takes a name (`"excalifont"`, `"helvetica"`, `"cascadia"`) or `"1"`-`"8"`.
+- Give every element, arrows included, an `id` you choose. `add` refuses an id that already exists
+  (exit 2): change it with `update`.
+- `"text"` on a shape is its label. `fontSize`, `verticalAlign` (`top`/`middle`/`bottom`) and
+  `textAlign` (`left`/`center`/`right`) next to it style the label.
+- Arrows: `startElementId` / `endElementId` bind them to shapes. A bound arrow keeps any `points`
+  you give and `"elbowed": true`, and follows when the shapes move. `"text"` on an arrow labels it.
+- Colours: `strokeColor` and `backgroundColor`, with `"fillStyle": "solid"` for flat fills.
+- `fontFamily`: `"excalifont"`, `"helvetica"`, `"cascadia"`, or `"1"`-`"8"`.
 
 ```bash
 herdr-draw canvas add <<'EOF'
 [
-  {"id": "web", "type": "rectangle", "x": 100, "y": 0, "width": 180, "height": 60, "text": "Web app"},
-  {"id": "api", "type": "rectangle", "x": 100, "y": 160, "width": 180, "height": 60, "text": "API"},
-  {"id": "db", "type": "rectangle", "x": 100, "y": 320, "width": 180, "height": 60, "text": "Postgres"},
-  {"type": "arrow", "x": 0, "y": 0, "startElementId": "web", "endElementId": "api"},
-  {"type": "arrow", "x": 0, "y": 0, "startElementId": "api", "endElementId": "db"}
+  {"id": "zone", "type": "rectangle", "x": 0, "y": 0, "width": 320, "height": 380,
+   "strokeStyle": "dashed", "text": "Backend", "verticalAlign": "top", "textAlign": "left"},
+  {"id": "api", "type": "rectangle", "x": 70, "y": 60, "width": 180, "height": 60, "text": "API",
+   "strokeColor": "#1971c2", "backgroundColor": "#a5d8ff", "fillStyle": "solid"},
+  {"id": "db", "type": "rectangle", "x": 70, "y": 260, "width": 180, "height": 60, "text": "Postgres"},
+  {"id": "api-db", "type": "arrow", "x": 0, "y": 0, "startElementId": "api", "endElementId": "db", "text": "SQL"}
 ]
 EOF
 ```
+
+**Act on `warnings`.** `add`, `apply` and `update` list problems they can see, such as a label wider
+than its shape or than its arrow, each naming the element and the size it needs. Fix them before
+you go on.
 
 ## Layout
 
 (0, 0) is the top left; x grows right, y grows down. Plan the grid before writing JSON.
 
-- Rows 80-120px apart; siblings at least 40px apart, 120px+ when the arrow between them has a label.
-- Shape width `max(160, label characters × 12)`; height 60 for one line, 80 for two.
-- Fonts at least 16 (titles 20).
-- Zones (background rectangles): 50px padding around what they hold, `"strokeStyle": "dashed"`.
-- `"fillStyle": "solid"` gives flat fills (the default is sketchy hachure). Stroke/fill pairs:
-  `#1971c2`/`#a5d8ff` blue, `#2f9e44`/`#b2f2bb` green, `#e03131`/`#ffc9c9` red, `#e8590c`/`#ffd8a8`
-  orange, `#9c36b5`/`#eebefa` purple, `#0c8599`/`#99e9f2` cyan, `#868e96`/`#e9ecef` gray.
-- Order: zones, shapes, arrows, annotations, then refine.
+- Rows 80-120px apart, siblings at least 40px apart. Fonts at least 16 (titles 20).
+- A zone is a dashed rectangle with a top-left label (as above), 50px larger than what it holds.
+  Add zones before the shapes inside them: a later element is drawn on top, and there is no way to
+  restack yet.
+- Label an arrow only when the label says something (a protocol, a port, a direction).
+- Pairs of `strokeColor`/`backgroundColor`: `#1971c2`/`#a5d8ff` blue, `#2f9e44`/`#b2f2bb` green,
+  `#e03131`/`#ffc9c9` red, `#e8590c`/`#ffd8a8` orange, `#9c36b5`/`#eebefa` purple, `#0c8599`/`#99e9f2`
+  cyan, `#868e96`/`#e9ecef` gray.
+- To route an arrow around something, give it waypoints (`points` relative to `x`, `y`) or make it
+  `"elbowed": true`.
 
-Avoid these:
+## Check, then edit
 
-1. **No label on a zone.** It is centred over the boxes inside. Use a separate `text` element at the
-   zone's top-left corner instead.
-2. **No arrows across zones** through other elements. Keep arrows within a tier or zone, or route
-   them along the edge.
-3. **Few arrow labels**, 12 characters at most, and only when the label carries real information
-   (a protocol, a port, a direction). A label needs an arrow longer than itself.
+After each batch, run `screenshot`. It prints JSON whose `file` is a PNG: open it and check that all
+text shows, nothing overlaps, and no arrow crosses an unrelated shape. Fix what you see, then
+screenshot again.
 
-To route around an obstacle, add waypoints:
-
-```json
-{"type": "arrow", "x": 100, "y": 100, "points": [[0, 0], [50, -40], [200, 0]], "roundness": {"type": 2}}
-{"type": "arrow", "x": 100, "y": 100, "points": [[0, 0], [0, -50], [200, -50], [200, 0]], "elbowed": true}
-```
-
-Curved arrows suit fan-outs; elbowed arrows suit going up, across and down to a side column.
-
-## Check every batch
-
-After each `add` or `apply`, run `screenshot` and look at the PNG:
-
-1. All text visible (else widen or heighten the shape).
-2. No shapes overlapping; zones contain their children with padding.
-3. No arrow through an unrelated shape; no arrow label on a shape.
-4. At least 40px between elements; the whole scene readable at the pane's narrow width.
-
-If something is wrong, say what you see, fix it, and screenshot again before adding more.
-
-## Editing
-
-- `describe` lists ids, positions, labels and connections. Find elements by id or label, not
-  coordinates.
-- `update <id> --set '{"width": 220}'` moves, resizes or recolours one element; bound arrows follow.
-  Use `apply` for many changes at once.
-- An update that fails: check the id with `get <id>`. A locked element needs `arrange unlock --ids <id>`.
-- `arrange align|distribute|group|lock|unlock|duplicate --ids a,b,c` tidies layouts.
+- `describe` lists ids, positions, labels, arrow endpoints (`from a -> b`) and frame names. Find
+  elements by id or label, not coordinates. `query --type`/`--bbox`/`--filter k=v` and `get <id>`
+  return the JSON.
+- `update <id> --set '{...}'` changes one element; bound arrows follow. `delete <id> ...` removes.
+  `apply` does many changes at once.
+- `arrange align --ids a,b --to left|center|right|top|middle|bottom`,
+  `arrange distribute --ids a,b,c --to horizontal|vertical`, `arrange group|duplicate --ids a,b`.
 - `snapshot save <name>` before a risky change, `snapshot restore <name>` to go back.
 - Files: `export --out diagram.excalidraw`, `import diagram.excalidraw [--replace]`,
-  `screenshot --out diagram.png` (or `--format svg`).
-- Nothing showing? It may be off screen: check positions with `describe`.
+  `screenshot --out diagram.png` (or `.svg`).
+- `herdr-draw canvas help <command>` shows one command's flags.
