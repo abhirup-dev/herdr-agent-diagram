@@ -19,13 +19,136 @@ import { render } from "pele";
 import { parse } from "./args.mjs";
 import { appHere, signal } from "./canvas.mjs";
 
-const APP_HOME = process.env.HERDR_APP_HOME || path.join(os.homedir(), ".config", "herdr-app");
-const ROOT = path.join(APP_HOME, "data", "herdr-agent-diagram");
+export const getAppHome = () => process.env.HERDR_APP_HOME || path.join(os.homedir(), ".config", "herdr-app");
+export const getRoot = () => path.join(getAppHome(), "data", "herdr-agent-diagram");
 // GPUI rasterises an SVG at its declared width/height, then scales the bitmap: declare it big (retina x zoom x viewer upscale).
 const RASTER = 4;
 // A typical maximised popup viewport (logical px, 0.85 of a laptop window): below MIN_FIT the text gets hard to read.
-const VIEW = { width: 1100, height: 620 };
-const MIN_FIT = 0.7;
+export const DEFAULT_VIEW = { width: 1100, height: 620 };
+export const MIN_FIT = 0.7;
+
+function parseWindowSize(data) {
+  if (!data || typeof data !== "object") return null;
+  if (Array.isArray(data)) {
+    for (const item of data) {
+      const s = parseWindowSize(item);
+      if (s) return s;
+    }
+    return null;
+  }
+  if (typeof data.width === "number" && typeof data.height === "number" && data.width > 0 && data.height > 0) {
+    return { width: data.width, height: data.height };
+  }
+  if (Array.isArray(data.bounds)) {
+    if (data.bounds.length >= 4) {
+      const width = data.bounds[2];
+      const height = data.bounds[3];
+      if (typeof width === "number" && typeof height === "number" && width > 0 && height > 0) {
+        return { width, height };
+      }
+    } else if (data.bounds.length === 2) {
+      const width = data.bounds[0];
+      const height = data.bounds[1];
+      if (typeof width === "number" && typeof height === "number" && width > 0 && height > 0) {
+        return { width, height };
+      }
+    }
+  } else if (data.bounds && typeof data.bounds === "object") {
+    if (
+      typeof data.bounds.width === "number" &&
+      typeof data.bounds.height === "number" &&
+      data.bounds.width > 0 &&
+      data.bounds.height > 0
+    ) {
+      return { width: data.bounds.width, height: data.bounds.height };
+    }
+    if (
+      data.bounds.size &&
+      typeof data.bounds.size.width === "number" &&
+      typeof data.bounds.size.height === "number" &&
+      data.bounds.size.width > 0 &&
+      data.bounds.size.height > 0
+    ) {
+      return { width: data.bounds.size.width, height: data.bounds.size.height };
+    }
+  }
+  if (data.size && typeof data.size === "object") {
+    if (
+      typeof data.size.width === "number" &&
+      typeof data.size.height === "number" &&
+      data.size.width > 0 &&
+      data.size.height > 0
+    ) {
+      return { width: data.size.width, height: data.size.height };
+    }
+    if (Array.isArray(data.size) && data.size.length >= 2) {
+      const [width, height] = data.size;
+      if (typeof width === "number" && typeof height === "number" && width > 0 && height > 0) {
+        return { width, height };
+      }
+    }
+  }
+  if (data.main && typeof data.main === "object") {
+    const s = parseWindowSize(data.main);
+    if (s) return s;
+  }
+  if (data.window && typeof data.window === "object") {
+    const s = parseWindowSize(data.window);
+    if (s) return s;
+  }
+  if (data.windows && (Array.isArray(data.windows) || typeof data.windows === "object")) {
+    const s = parseWindowSize(data.windows);
+    if (s) return s;
+  }
+  return null;
+}
+
+export function readWindowSize(appHome = getAppHome()) {
+  const candidates = ["window.json", "windows.json"];
+  for (const name of candidates) {
+    const file = path.join(appHome, name);
+    try {
+      if (fs.existsSync(file)) {
+        const raw = fs.readFileSync(file, "utf8");
+        const parsed = JSON.parse(raw);
+        const size = parseWindowSize(parsed);
+        if (size) return size;
+      }
+    } catch {
+      // Ignore read / parse errors and fall through
+    }
+  }
+  return null;
+}
+
+function overlayRatio(appHome = getAppHome()) {
+  const candidates = [
+    path.join(appHome, "mods", "diagram-popup", "mod.json"),
+    path.join(path.dirname(new URL(import.meta.url).pathname), "../../mods/diagram-popup/mod.json"),
+  ];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) {
+        const mod = JSON.parse(fs.readFileSync(p, "utf8"));
+        const ov = mod.overlay;
+        if (ov && typeof ov.width === "number" && typeof ov.height === "number") {
+          return { width: ov.width, height: ov.height };
+        }
+      }
+    } catch {}
+  }
+  return { width: 0.85, height: 0.85 };
+}
+
+export function popupBox(appHome = getAppHome()) {
+  const win = readWindowSize(appHome);
+  if (!win) return { ...DEFAULT_VIEW };
+  const ratio = overlayRatio(appHome);
+  const width = ratio.width <= 1 ? Math.round(win.width * ratio.width) : Math.round(ratio.width);
+  const height = ratio.height <= 1 ? Math.round(win.height * ratio.height) : Math.round(ratio.height);
+  if (width <= 0 || height <= 0) return { ...DEFAULT_VIEW };
+  return { width, height };
+}
 const hires = (svg) =>
   svg.replace(
     /(<svg[^>]*?)\swidth="([\d.]+)"\sheight="([\d.]+)"/,
@@ -83,13 +206,16 @@ function toPng(raw, file) {
 }
 
 // How the diagram will read in the popup, as warnings for the agent.
-function advice({ width, height }) {
-  const fit = Math.min(1, VIEW.width / width, VIEW.height / height);
-  const out = [`fits the popup at ${Math.round(fit * 100)}% size`];
-  if (fit < MIN_FIT)
+export function advice({ width, height }, box = popupBox()) {
+  const fit = Math.min(1, box.width / width, box.height / height);
+  const out = [`fits the popup (${box.width}x${box.height}) at ${Math.round(fit * 100)}% size`];
+  if (fit < MIN_FIT) {
+    const shrinkByWidth = width / box.width > height / box.height;
+    const suggest = shrinkByWidth ? "TD" : "LR";
     out.push(
-      `warning: text shows at ${Math.round(fit * 100)}% when fitted; split it, shorten labels, or switch direction (${width > height ? "TD" : "LR"})`,
+      `warning: text shows at ${Math.round(fit * 100)}% when fitted; split it, shorten labels, or switch direction (${suggest})`,
     );
+  }
   return out;
 }
 
@@ -138,7 +264,7 @@ function findPin(state, id) {
   return null;
 }
 function unlinkAssets(dir, pin, keepPng) {
-  if (pin.svg) fs.rmSync(path.join(APP_HOME, pin.svg), { force: true });
+  if (pin.svg) fs.rmSync(path.join(getAppHome(), pin.svg), { force: true });
   if (!keepPng) fs.rmSync(path.join(dir, `${pin.id}.png`), { force: true });
   // themed copies the viewer wrote
   for (const f of fs.existsSync(dir) ? fs.readdirSync(dir) : [])
@@ -154,7 +280,7 @@ function renderPin(dir, terminal, id, rev, mmd) {
   }
   const svg = path.posix.join("data", "herdr-agent-diagram", terminal, `${id}-r${rev}.svg`);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(APP_HOME, svg), hires(out.svg));
+  fs.writeFileSync(path.join(getAppHome(), svg), hires(out.svg));
   const png = path.join(dir, `${id}.png`);
   toPng(out.svg, png);
   return { svg, png, width: out.width, height: out.height, type: out.mermaidType };
@@ -203,7 +329,7 @@ export async function mermaid(argv) {
   if (!terminal) die("no $HC_TERMINAL_ID: run inside a herdr-core terminal or pass --terminal");
   if (/[^A-Za-z0-9_.-]/.test(terminal))
     die(`terminal address "${terminal}" is not a plain id (remote machine/ addresses are not supported yet)`);
-  const dir = path.join(ROOT, terminal);
+  const dir = path.join(getRoot(), terminal);
   const state = load(dir);
 
   if (cmd === "add") {

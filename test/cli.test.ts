@@ -1,12 +1,19 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { program, route } from "../cli/herdr-draw.mjs";
 import { program as canvasProgram, status } from "../cli/lib/canvas.mjs";
 import { program as installProgram } from "../cli/lib/install.mjs";
 import { parseArgs as logsArgs, program as logsProgram } from "../cli/lib/logs.mjs";
-import { extract, program as mermaidProgram, parseArgs } from "../cli/lib/mermaid.mjs";
+import {
+  DEFAULT_VIEW,
+  extract,
+  program as mermaidProgram,
+  parseArgs,
+  popupBox,
+  readWindowSize,
+} from "../cli/lib/mermaid.mjs";
 import { COMMANDS } from "../src/board/cli.ts";
 
 const CLI = join(import.meta.dir, "../cli/herdr-draw.mjs");
@@ -152,5 +159,113 @@ test("canvas status reports everything down when nothing listens", async () => {
     sidecar: { url: "http://127.0.0.1:9", up: false, pid: null },
     board: { id: "t5", url: "http://127.0.0.1:9/b/t5" },
     boards: [],
+  });
+});
+
+describe("mermaid popup fit", () => {
+  const tallTD = `flowchart TD
+  A[Start Task] --> B[Step 1: Ingest Data]
+  B --> C[Step 2: Parse Tokens]
+  C --> D[Step 3: Build Graph]
+  D --> E[Step 4: Layout Nodes]
+  E --> F[Step 5: Render Edges]
+  F --> G[Step 6: Apply Theme]
+  G --> H[Step 7: Check Readability]
+  H --> I[Step 8: Output Preview]
+  I --> J[Done]
+`;
+
+  const wideLR = `flowchart LR
+  A[Step 1: First Process Stage] --> B[Step 2: Second Process Stage] --> C[Step 3: Third Process Stage] --> D[Step 4: Fourth Process Stage] --> E[Step 5: Fifth Process Stage] --> F[Step 6: Sixth Process Stage]
+`;
+
+  test("missing window.json falls back to default 1100x620 box", () => {
+    const home = mkdtempSync(join(tmpdir(), "herdr-draw-fit-missing-"));
+    const env = { HERDR_APP_HOME: home };
+    expect(readWindowSize(home)).toBeNull();
+    expect(popupBox(home)).toEqual(DEFAULT_VIEW);
+
+    const r = run(["mermaid", "check"], env, "flowchart TD\n a-->b\n");
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("preview:");
+    expect(r.out).toContain("fits the popup (1100x620) at 100% size");
+    expect(r.out).not.toContain("warning:");
+  });
+
+  test("corrupt window.json falls back gracefully", () => {
+    const home = mkdtempSync(join(tmpdir(), "herdr-draw-fit-corrupt-"));
+    writeFileSync(join(home, "window.json"), "NOT_JSON");
+    expect(popupBox(home)).toEqual(DEFAULT_VIEW);
+  });
+
+  test("portrait window: tall TD passes, wide LR warns to switch to TD", () => {
+    const home = mkdtempSync(join(tmpdir(), "herdr-draw-fit-portrait-"));
+    // 1059 x 1647 with 0.85 dialog overlay gives 900 x 1400
+    writeFileSync(join(home, "window.json"), JSON.stringify({ state: "windowed", bounds: [0, 0, 1059, 1647] }));
+    const env = { HERDR_APP_HOME: home };
+    expect(popupBox(home)).toEqual({ width: 900, height: 1400 });
+
+    // Tall TD passes without warning in portrait
+    const tdRun = run(["mermaid", "check"], env, tallTD);
+    expect(tdRun.code).toBe(0);
+    expect(tdRun.out).toContain("preview:");
+    expect(tdRun.out).toContain("fits the popup (900x1400) at 100% size");
+    expect(tdRun.out).not.toContain("warning:");
+
+    // Wide LR is too wide for portrait popup (900px) and warns to switch to TD
+    const lrRun = run(["mermaid", "check"], env, wideLR);
+    expect(lrRun.code).toBe(0);
+    expect(lrRun.out).toContain("preview:");
+    expect(lrRun.out).toContain("fits the popup (900x1400) at 58% size");
+    expect(lrRun.out).toContain(
+      "warning: text shows at 58% when fitted; split it, shorten labels, or switch direction (TD)",
+    );
+  });
+
+  test("landscape window: wide LR passes, tall TD warns to switch to LR", () => {
+    const home = mkdtempSync(join(tmpdir(), "herdr-draw-fit-landscape-"));
+    // 1718 x 1073 with 0.85 dialog overlay gives 1460 x 912
+    writeFileSync(join(home, "window.json"), JSON.stringify({ state: "windowed", bounds: [1727, 1089, 1718, 1073] }));
+    const env = { HERDR_APP_HOME: home };
+    expect(popupBox(home)).toEqual({ width: 1460, height: 912 });
+
+    // Wide LR (1550x82) fits in 1460x912 at 94% size (>= MIN_FIT 70%) without warning
+    const lrRun = run(["mermaid", "check"], env, wideLR);
+    expect(lrRun.code).toBe(0);
+    expect(lrRun.out).toContain("preview:");
+    expect(lrRun.out).toContain("fits the popup (1460x912) at 94% size");
+    expect(lrRun.out).not.toContain("warning:");
+
+    // Very tall TD in landscape warns to switch to LR
+    const veryTallTD = `flowchart TD
+  A[Start Task] --> B[Step 1: Ingest Data]
+  B --> C[Step 2: Parse Tokens]
+  C --> D[Step 3: Build Graph]
+  D --> E[Step 4: Layout Nodes]
+  E --> F[Step 5: Render Edges]
+  F --> G[Step 6: Apply Theme]
+  G --> H[Step 7: Check Readability]
+  H --> I[Step 8: Output Preview]
+  I --> J[Step 9: Additional Work]
+  J --> K[Step 10: Deep Analysis]
+  K --> L[Step 11: Complex Routing]
+  L --> M[Step 12: Extra Validation]
+  M --> N[Step 13: Edge Case Inspection]
+  N --> O[Step 14: Quality Assurance]
+  O --> P[Done]
+`;
+    const tdRun = run(["mermaid", "check"], env, veryTallTD);
+    expect(tdRun.code).toBe(0);
+    expect(tdRun.out).toContain("preview:");
+    expect(tdRun.out).toContain("fits the popup (1460x912) at 60% size");
+    expect(tdRun.out).toContain(
+      "warning: text shows at 60% when fitted; split it, shorten labels, or switch direction (LR)",
+    );
+  });
+
+  test("windows.json fallback is supported when window.json is absent", () => {
+    const home = mkdtempSync(join(tmpdir(), "herdr-draw-fit-windows-"));
+    writeFileSync(join(home, "windows.json"), JSON.stringify({ main: { bounds: [0, 0, 1059, 1647] } }));
+    expect(popupBox(home)).toEqual({ width: 900, height: 1400 });
   });
 });
