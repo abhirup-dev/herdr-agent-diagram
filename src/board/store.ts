@@ -145,6 +145,7 @@ export class Board {
 
   create(body: Record<string, unknown>): BoardElement {
     const el = this.fresh(body);
+    if (this.elements.has(el.id)) throw new BoardError(`id ${el.id} exists; use update`);
     if (isLinear(el)) routeArrow(el, (id) => this.elements.get(id));
     this.elements.set(el.id, el);
     this.onChange();
@@ -155,6 +156,7 @@ export class Board {
   batch(bodies: unknown, replace = false): BoardElement[] {
     if (!Array.isArray(bodies)) throw new BoardError("Expected an array of elements");
     const created = bodies.map((b) => this.fresh(b as Record<string, unknown>));
+    this.assertNew(created, replace);
     const byId = new Map(created.map((e) => [e.id, e]));
     for (const el of created)
       if (isLinear(el)) routeArrow(el, (id) => byId.get(id) ?? (replace ? undefined : this.elements.get(id)));
@@ -225,6 +227,16 @@ export class Board {
     const snap = this.snapshots.get(name);
     if (!snap) throw new BoardError(`Snapshot "${name}" not found`, 404);
     return snap;
+  }
+
+  /** Create refuses an id the board already has. A replace may reuse ids; a repeated id in one batch may not. */
+  private assertNew(els: BoardElement[], replace: boolean): void {
+    const seen = new Set<string>();
+    for (const el of els) {
+      if (seen.has(el.id) || (!replace && this.elements.has(el.id)))
+        throw new BoardError(`id ${el.id} exists; use update`);
+      seen.add(el.id);
+    }
   }
 
   private fresh(body: Record<string, unknown>): BoardElement {
