@@ -12,7 +12,7 @@ Group pins in tabs by topic (`--tab "Auth flow"`; the default is "Diagrams"). Ch
 Do:
 - **Keep labels short and wrap long chains** into subgraphs or a second rank, so the diagram fits the
   popup at full size.
-- **Split a big diagram** (more than about a dozen nodes) into a few focused ones.
+- **Split a big diagram** (more than about 15 nodes) into a few focused ones.
 
 Don't:
 - Don't ignore a `warning:` line: split the diagram, shorten labels, or switch to the direction it
