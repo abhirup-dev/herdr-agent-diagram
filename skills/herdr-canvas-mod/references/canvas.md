@@ -19,7 +19,8 @@ Commands print JSON (`describe` prints text). Exit codes: 0 ok, 1 error, 2 usage
 `add` takes a JSON array (a file or stdin), or one element with `add --one '{...}'`. `apply` takes a
 patch: `{"create":[...],"update":[{"id":"a","set":{...}}],"delete":["id"]}`.
 
-- Give every element, arrows included, an `id` you choose.
+- Give every element, arrows included, an `id` that says what it is (`api`, `api-db`). `add` refuses
+  an id that already exists (exit 2): change it with `update`.
 - `"text"` on a shape is its label. `fontSize`, `verticalAlign` (`top`/`middle`/`bottom`) and
   `textAlign` (`left`/`center`/`right`) next to it style the label.
 - Arrows: `startElementId` / `endElementId` bind them to shapes. A bound arrow keeps any `points`
@@ -54,12 +55,10 @@ Do:
 - **Draw zones first,** 50px larger than what they hold, with a top-left title (`"verticalAlign": "top",
   "textAlign": "left"`, dashed stroke). A later element is drawn on top, and there's no restack yet.
 - **Route around obstacles** with `points` (relative to `x`, `y`) or `"elbowed": true` on bound arrows.
-- **Pick ids that say what the element is** (`api`, `api-db`); you'll `update` by them.
 
 Don't:
 - Don't label every arrow: only when the label says something (a protocol, a port, a direction).
 - Don't use fonts under 16 (titles 20).
-- Don't `add` an id that exists (exit 2); `update` it.
 - Don't draw an arrow through an unrelated shape; move the shape or route the arrow.
 
 Colours (`strokeColor`/`backgroundColor`, `"fillStyle": "solid"`): `#1971c2`/`#a5d8ff` blue,

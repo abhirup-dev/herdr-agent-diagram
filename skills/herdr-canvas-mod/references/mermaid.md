@@ -6,17 +6,15 @@ and glows until the user opens them; clicking it opens a popup with tabs and pag
 Any Mermaid type works (flowchart, sequence, state, class, ER, gantt, ...). Rendering is Pele, not
 Mermaid.js: same syntax, its own layout. It refuses what it can't draw (exit 1 with the reason).
 
+Group pins in tabs by topic (`--tab "Auth flow"`; the default is "Diagrams"). Change a pin with
+`replace` (same id, same tab) rather than adding a copy, and `remove` pins that no longer apply.
+
 Do:
-- **Pin only when asked** to keep a diagram visible, or when the diagram is the deliverable.
-- **One topic per pin and per tab** (`--tab "Auth flow"`; the default tab is "Diagrams").
-- **`check` a draft first** when it is big (more than about a dozen nodes): it prints the same
-  preview and readability lines as `add`, without pinning.
 - **Keep labels short and wrap long chains** into subgraphs or a second rank, so the diagram fits the
   popup at full size.
-- **Change a pin with `replace`** (same id, same tab); `remove` pins that no longer apply.
+- **Split a big diagram** (more than about a dozen nodes) into a few focused ones.
 
 Don't:
-- Don't pin a diagram that only explains a chat answer; leave it in chat.
 - Don't ignore a `warning:` line: split the diagram, shorten labels, or switch to the direction it
   names, then `replace`.
 - Don't trust "ok" alone: Pele can draw overlapping parts without complaint (ER cardinality marks,

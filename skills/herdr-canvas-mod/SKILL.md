@@ -12,8 +12,9 @@ Two ways to show a diagram next to your terminal in the Herdr app, both through 
 | A diagram kept visible, read-only (an architecture, a flow, a state machine) | `herdr-draw mermaid`: pins show in the pane's Diagrams badge and popup | [references/mermaid.md](references/mermaid.md) |
 | To draw or edit a diagram together, or to see the canvas | `herdr-draw canvas`: a live Excalidraw pane to your right | [references/canvas.md](references/canvas.md) |
 
-Diagrams that are just part of a chat answer stay in chat. Mermaid pins can't be converted onto the
-canvas: draw the elements there directly.
+Keep pins few, so the Diagrams popup doesn't become a dump: pin what the user asked for, or only the
+most important, load-bearing diagrams. Diagrams that are just part of a chat answer stay in chat.
+Mermaid pins can't be converted onto the canvas: draw the elements there directly.
 
 Both modes:
 
