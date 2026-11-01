@@ -3,17 +3,25 @@
 Pins live next to your terminal in the Herdr app: a badge in the pane header shows how many there are
 and glows until the user opens them; clicking it opens a popup with tabs and pages.
 
-1. **Pin only when asked** to keep a diagram visible, or when the diagram is the deliverable.
-2. **Any Mermaid type works** (flowchart, sequence, state, class, ER, gantt, ...). Rendering is Pele, not
-   Mermaid.js: same syntax, its own layout.
-3. **One tab per topic:** `--tab "Auth flow"`. The default tab is "Diagrams".
-4. **Change a pin with `replace`**, never by adding a second copy. Remove pins that no longer apply.
-5. **Pele refuses what it can't draw** (exit 1 with the reason): fix the Mermaid and retry.
-6. **Check the preview:** `add`, `replace` and `check` print a `preview:` PNG and a line like
-   `fits the popup (1460x912) at 80% size`, measured against the user's actual popup. On a `warning:`
-   line, do what it says (split, shorten labels, or switch to the direction it names), then `replace`.
-   Pele can also draw overlapping parts without complaint (ER cardinality marks, for one): look at
-   the PNG.
+Any Mermaid type works (flowchart, sequence, state, class, ER, gantt, ...). Rendering is Pele, not
+Mermaid.js: same syntax, its own layout. It refuses what it can't draw (exit 1 with the reason).
+
+Do:
+- **Pin only when asked** to keep a diagram visible, or when the diagram is the deliverable.
+- **One topic per pin and per tab** (`--tab "Auth flow"`; the default tab is "Diagrams").
+- **`check` a draft first** when it is big (more than about a dozen nodes): it prints the same
+  preview and readability lines as `add`, without pinning.
+- **Keep labels short and wrap long chains** into subgraphs or a second rank, so the diagram fits the
+  popup at full size.
+- **Change a pin with `replace`** (same id, same tab); `remove` pins that no longer apply.
+
+Don't:
+- Don't pin a diagram that only explains a chat answer; leave it in chat.
+- Don't ignore a `warning:` line: split the diagram, shorten labels, or switch to the direction it
+  names, then `replace`.
+- Don't trust "ok" alone: Pele can draw overlapping parts without complaint (ER cardinality marks,
+  for one). Open the `preview:` PNG; the line after it, e.g. `fits the popup (1460x912) at 80% size`,
+  is measured against the user's actual popup.
 
 ```sh
 herdr-draw mermaid add [--tab NAME] [--title T] file.mmd   # prints the pin id (d1, d2, ...)
