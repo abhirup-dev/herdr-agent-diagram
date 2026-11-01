@@ -228,8 +228,8 @@ export function expandElementsForExport(sourceElements, options = {}) {
                 originalText: labelText,
                 fontSize: isArrow ? 14 : (rest.fontSize ?? 16),
                 fontFamily: normalizeFontFamily(rest.fontFamily) ?? 1,
-                textAlign: 'center',
-                verticalAlign: 'middle',
+                textAlign: isArrow ? 'center' : (label?.textAlign ?? 'center'),
+                verticalAlign: isArrow ? 'middle' : (label?.verticalAlign ?? 'middle'),
                 autoResize: true,
                 lineHeight: 1.25,
                 containerId: base.id

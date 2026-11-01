@@ -110,21 +110,52 @@ function routeArrow(el: BoardElement, lookup: (id: string) => BoardElement | und
   if (!startId && !endId) return;
   const s = startId ? lookup(startId) : undefined;
   const e = endId ? lookup(endId) : undefined;
-  const sc = s ? center(s) : { x: num(el.x), y: num(el.y) };
-  const ec = e ? center(e) : { x: num(el.x) + 100, y: num(el.y) };
-  const sp = s ? edgePoint(s, ec.x, ec.y) : sc;
-  const ep = e ? edgePoint(e, sc.x, sc.y) : ec;
-  const dist = Math.hypot(ep.x - sp.x, ep.y - sp.y) || 1;
-  const ux = (ep.x - sp.x) / dist;
-  const uy = (ep.y - sp.y) / dist;
-  const start = { x: sp.x + ux * 8, y: sp.y + uy * 8 };
-  const end = { x: ep.x - ux * 8, y: ep.y - uy * 8 };
+  const points = Array.isArray(el.points)
+    ? (el.points as number[][]).map((p) => ({ x: num(el.x) + num(p[0]), y: num(el.y) + num(p[1]) }))
+    : [];
+  const interior = points.slice(1, -1);
+  const sc = s ? center(s) : (points[0] ?? { x: num(el.x), y: num(el.y) });
+  const ec = e ? center(e) : (points.at(-1) ?? { x: num(el.x) + 100, y: num(el.y) });
+  const anchor = (
+    shape: BoardElement | undefined,
+    fallback: { x: number; y: number },
+    target: { x: number; y: number },
+    horizontal?: boolean,
+  ) => {
+    if (!shape) return fallback;
+    const c = center(shape);
+    const toward = horizontal === undefined ? target : horizontal ? { x: target.x, y: c.y } : { x: c.x, y: target.y };
+    const edge = edgePoint(shape, toward.x, toward.y);
+    const distance = Math.hypot(toward.x - c.x, toward.y - c.y) || 1;
+    return {
+      x: horizontal === false ? c.x : edge.x + ((toward.x - c.x) / distance) * 8,
+      y: horizontal === true ? c.y : edge.y + ((toward.y - c.y) / distance) * 8,
+    };
+  };
+  const firstHorizontal =
+    points.length > 1 ? points[0]?.y === points[1]?.y : Math.abs(ec.x - sc.x) >= Math.abs(ec.y - sc.y);
+  const lastHorizontal = points.length > 1 ? points.at(-1)?.y === points.at(-2)?.y : firstHorizontal;
+  const start = anchor(s, sc, interior[0] ?? ec, el.elbowed ? firstHorizontal : undefined);
+  const end = anchor(e, ec, interior.at(-1) ?? sc, el.elbowed ? lastHorizontal : undefined);
+  const route = [start, ...interior, end];
+  if (el.elbowed) {
+    // Add endpoint doglegs rather than moving caller-supplied interior waypoints.
+    if (!interior.length) {
+      if (firstHorizontal)
+        route.splice(1, 0, { x: (start.x + end.x) / 2, y: start.y }, { x: (start.x + end.x) / 2, y: end.y });
+      else route.splice(1, 0, { x: start.x, y: (start.y + end.y) / 2 }, { x: end.x, y: (start.y + end.y) / 2 });
+    } else {
+      const first = interior[0]!;
+      const last = interior.at(-1)!;
+      if (start.x !== first.x && start.y !== first.y)
+        route.splice(1, 0, firstHorizontal ? { x: first.x, y: start.y } : { x: start.x, y: first.y });
+      if (end.x !== last.x && end.y !== last.y)
+        route.splice(route.length - 1, 0, lastHorizontal ? { x: last.x, y: end.y } : { x: end.x, y: last.y });
+    }
+  }
   el.x = start.x;
   el.y = start.y;
-  el.points = [
-    [0, 0],
-    [end.x - start.x, end.y - start.y],
-  ];
+  el.points = route.map((p) => [p.x - start.x, p.y - start.y]);
 }
 
 export class Board {
@@ -176,6 +207,10 @@ export class Board {
       updatedAt: now(),
       version: num(old.version) + 1,
     };
+    if (isLinear(el)) {
+      if (body.points === undefined) el.points = old.points;
+      routeArrow(el, (id) => this.elements.get(id));
+    }
     if (el.type === "text" && has(body, "text") && !has(body, "originalText")) syncOriginalText(el, old, body);
     this.elements.set(id, el);
     if (!isLinear(el) && GEOMETRY.some((k) => has(body, k))) this.rerouteArrowsOf(id);
