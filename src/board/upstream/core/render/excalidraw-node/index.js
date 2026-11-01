@@ -1,4 +1,5 @@
 import { loadExcalidrawNode, getDomWindow } from './dom.js';
+import { alignContainerLabels, placeArrowLabels, labelsForSvg } from '../../../../layout.ts';
 import { fnv1a } from '../../expand-elements.js';
 const SERVER_ONLY_KEYS = ['createdAt', 'updatedAt', 'syncedAt', 'source', 'syncTimestamp'];
 // Seeds drive roughjs's hand-drawn jitter. Server elements usually carry
@@ -21,13 +22,13 @@ function withDeterministicSeeds(element) {
 // so headless renders match what the user sees.
 export async function prepareScene(elements) {
     const mod = await loadExcalidrawNode();
-    return mod.prepareServerScene(elements.map(withDeterministicSeeds));
+    return placeArrowLabels(alignContainerLabels(mod.prepareServerScene(elements.map(withDeterministicSeeds)), elements));
 }
 export async function renderSvgWithExcalidraw(preparedElements, files, options) {
     const mod = await loadExcalidrawNode();
     const win = getDomWindow();
     const svg = await mod.exportToSvg({
-        elements: preparedElements,
+        elements: labelsForSvg(preparedElements),
         appState: {
             exportBackground: options.background,
             viewBackgroundColor: options.viewBackgroundColor,

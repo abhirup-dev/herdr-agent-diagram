@@ -8,6 +8,7 @@ import path from "node:path";
 import { type Alignment, align, type Direction, distribute, duplicate, group, setLocked, ungroup } from "./arrange.ts";
 import { BoardClient, UnreachableError } from "./client.ts";
 import { describeScene, prepareElement, prepareUpdate } from "./prepare.ts";
+import { renderingWarnings } from "./render.ts";
 import { sceneFile } from "./scene-file.ts";
 import type { BoardElement } from "./store.ts";
 
@@ -112,7 +113,14 @@ async function applyPatch({ c, pos, input }: Ctx): Promise<void> {
   }
   for (const id of patch.delete ?? []) await c.remove(id);
   const deleted = patch.delete?.length ?? 0;
-  print({ success: true, created: created.length, updated: updated.length, deleted, elements: created });
+  print({
+    success: true,
+    created: created.length,
+    updated: updated.length,
+    deleted,
+    elements: created,
+    ...(await renderingWarnings(await c.elements())),
+  });
 }
 
 async function add({ c, pos, flags, input }: Ctx): Promise<void> {
@@ -120,7 +128,7 @@ async function add({ c, pos, flags, input }: Ctx): Promise<void> {
   const raw = one !== undefined ? [parseJson(one, "in --one")] : await input(pos[0], "elements");
   const els = (Array.isArray(raw) ? raw : [raw]) as Record<string, unknown>[];
   const created = await c.batch(els.map(prepareElement));
-  print({ success: true, count: created.length, elements: created });
+  print({ success: true, count: created.length, elements: created, ...(await renderingWarnings(await c.elements())) });
 }
 
 async function update({ c, pos, flags, input }: Ctx): Promise<void> {
@@ -132,7 +140,11 @@ async function update({ c, pos, flags, input }: Ctx): Promise<void> {
     unknown
   >;
   const existing = await c.get(id);
-  print({ success: true, element: await c.update(id, prepareUpdate(fields, existing.type)) });
+  print({
+    success: true,
+    element: await c.update(id, prepareUpdate(fields, existing.type)),
+    ...(await renderingWarnings(await c.elements())),
+  });
 }
 
 async function query({ c, flags }: Ctx): Promise<void> {
